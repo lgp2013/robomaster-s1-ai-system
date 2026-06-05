@@ -112,6 +112,13 @@ h1 {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(360px, 0.86fr);
   gap: 14px;
+  align-items: start;
+}
+
+.left-col {
+  display: grid;
+  gap: 14px;
+  align-content: start;
 }
 
 .preview-panel,
@@ -328,11 +335,6 @@ h1 {
   display: grid;
   gap: 14px;
   align-content: start;
-}
-
-.bottom-status {
-  margin-top: 14px;
-  padding: 16px;
 }
 
 .stats-grid,
