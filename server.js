@@ -59,6 +59,19 @@ const controlState = {
   modeNotice: '底盘模式只允许底盘摇杆生效，切模式时会立即清零。',
 };
 
+const robotInfoState = {
+  battery: null,
+  velocity: null,
+  gimbalYaw: null,
+  gimbalPitch: null,
+  imuStatus: null,
+  connectionQuality: null,
+  uptime: null,
+  errorCode: null,
+  firmwareVersion: null,
+  lastUpdateAt: null,
+};
+
 const perceptionRuntime = createPerceptionRuntime({
   runtimeRoot: RUNTIME_ROOT,
   onControlUpdate(update) {
@@ -675,6 +688,67 @@ function getControlSnapshot() {
       ...(discovery.robot.rosConnected ? [] : ['当前环境未连接 ROS2，控制指令仅在后端状态机中验证。']),
     ],
   };
+}
+
+function getRobotInfoSnapshot() {
+  return {
+    generatedAt: new Date().toISOString(),
+    battery: robotInfoState.battery,
+    velocity: robotInfoState.velocity,
+    gimbalYaw: robotInfoState.gimbalYaw,
+    gimbalPitch: robotInfoState.gimbalPitch,
+    imuStatus: robotInfoState.imuStatus,
+    connectionQuality: robotInfoState.connectionQuality,
+    uptime: robotInfoState.uptime,
+    errorCode: robotInfoState.errorCode,
+    firmwareVersion: robotInfoState.firmwareVersion,
+    lastUpdateAt: robotInfoState.lastUpdateAt,
+  };
+}
+
+function updateRobotInfoFromRos() {
+  if (!detectEnvironment().ros2Available) {
+    return;
+  }
+  try {
+    // 尝试从 ROS2 Topic 读取机器人状态
+    // 电池状态
+    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery_state', '--once']);
+    if (batteryRaw) {
+      const batteryMatch = batteryRaw.match(/percentage:\s*([\d.]+)/);
+      if (batteryMatch) {
+        robotInfoState.battery = `${(parseFloat(batteryMatch[1]) * 100).toFixed(0)}%`;
+      }
+    }
+  } catch {
+    // 静默失败
+  }
+  try {
+    // 底盘速度反馈
+    const odomRaw = tryExec('ros2', ['topic', 'echo', '/odom', '--once']);
+    if (odomRaw) {
+      const linearMatch = odomRaw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
+      const angularMatch = odomRaw.match(/angular:\s*\n\s*z:\s*([\d.eE+-]+)/);
+      if (linearMatch && angularMatch) {
+        robotInfoState.velocity = `${parseFloat(linearMatch[1]).toFixed(2)} / ${parseFloat(angularMatch[1]).toFixed(2)}`;
+      }
+    }
+  } catch {
+    // 静默失败
+  }
+  try {
+    // 云台姿态
+    const gimbalRaw = tryExec('ros2', ['topic', 'echo', '/gimbal/angle', '--once']);
+    if (gimbalRaw) {
+      const yawMatch = gimbalRaw.match(/yaw:\s*([\d.eE+-]+)/);
+      const pitchMatch = gimbalRaw.match(/pitch:\s*([\d.eE+-]+)/);
+      if (yawMatch) robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
+      if (pitchMatch) robotInfoState.gimbalPitch = `${parseFloat(pitchMatch[1]).toFixed(1)}°`;
+    }
+  } catch {
+    // 静默失败
+  }
+  robotInfoState.lastUpdateAt = new Date().toISOString();
 }
 
 function websocketFrame(text) {
@@ -1333,6 +1407,12 @@ async function routeRequest(req, res) {
 
   if (requestUrl.pathname === '/api/control/state') {
     sendJson(res, 200, getControlSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/robot/info') {
+    updateRobotInfoFromRos();
+    sendJson(res, 200, getRobotInfoSnapshot());
     return;
   }
 

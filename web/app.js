@@ -102,6 +102,16 @@ const el = {
   lockTargetValue: document.getElementById('lockTargetValue'),
   followStatusValue: document.getElementById('followStatusValue'),
   followWarningValue: document.getElementById('followWarningValue'),
+  robotBatteryValue: document.getElementById('robotBatteryValue'),
+  robotVelocityValue: document.getElementById('robotVelocityValue'),
+  robotGimbalYawValue: document.getElementById('robotGimbalYawValue'),
+  robotGimbalPitchValue: document.getElementById('robotGimbalPitchValue'),
+  robotImuValue: document.getElementById('robotImuValue'),
+  robotConnectionValue: document.getElementById('robotConnectionValue'),
+  robotUptimeValue: document.getElementById('robotUptimeValue'),
+  robotErrorValue: document.getElementById('robotErrorValue'),
+  robotFirmwareValue: document.getElementById('robotFirmwareValue'),
+  robotLastUpdateValue: document.getElementById('robotLastUpdateValue'),
 };
 
 const ctx = el.videoCanvas.getContext('2d', { alpha: false });
@@ -1064,6 +1074,34 @@ function startPerceptionPolling() {
   }, 350);
 }
 
+async function fetchRobotInfo() {
+  try {
+    const response = await fetch('/api/robot/info', { cache: 'no-store' });
+    if (!response.ok) return;
+    const info = await response.json();
+    el.robotBatteryValue.textContent = info.battery ?? '-';
+    el.robotVelocityValue.textContent = info.velocity ?? '-';
+    el.robotGimbalYawValue.textContent = info.gimbalYaw ?? '-';
+    el.robotGimbalPitchValue.textContent = info.gimbalPitch ?? '-';
+    el.robotImuValue.textContent = info.imuStatus ?? '-';
+    el.robotConnectionValue.textContent = info.connectionQuality ?? '-';
+    el.robotUptimeValue.textContent = info.uptime ?? '-';
+    el.robotErrorValue.textContent = info.errorCode ?? '-';
+    el.robotFirmwareValue.textContent = info.firmwareVersion ?? '-';
+    el.robotLastUpdateValue.textContent = info.lastUpdateAt ? new Date(info.lastUpdateAt).toLocaleTimeString('zh-CN') : '-';
+  } catch {
+    // 静默失败，不影响其他功能
+  }
+}
+
+function startRobotInfoPolling() {
+  setInterval(() => {
+    fetchRobotInfo().catch(() => {
+      // 静默失败
+    });
+  }, 2000);
+}
+
 async function bootstrap() {
   bindEvents();
   drawDisconnectedOverlay('等待自动发现', '系统正在读取 ROS2、视频源和控制状态。');
@@ -1091,6 +1129,7 @@ async function bootstrap() {
   scheduleCommandAgeTicker();
   startWatchdog();
   startPerceptionPolling();
+  startRobotInfoPolling();
 
   if (state.activeSource) {
     connectToCurrentSource();
