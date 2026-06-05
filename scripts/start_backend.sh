@@ -28,14 +28,21 @@ fi
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-3000}"
 
-# 检查端口是否被占用
-if command -v lsof &> /dev/null && lsof -i :"${PORT}" &> /dev/null; then
-  echo "[WARNING] 端口 ${PORT} 已被占用，尝试释放..."
-  lsof -i :"${PORT}" | grep LISTEN | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+# 检查端口是否被占用（使用 ss 或 netstat）
+PORT_PID=""
+if command -v ss &> /dev/null; then
+  PORT_PID=$(ss -tlnp | grep ":${PORT} " | grep -oP 'pid=\K[0-9]+' | head -1)
+elif command -v netstat &> /dev/null; then
+  PORT_PID=$(netstat -tlnp 2>/dev/null | grep ":${PORT} " | awk '{print $7}' | cut -d'/' -f1 | head -1)
+fi
+
+if [ -n "${PORT_PID}" ] && [ "${PORT_PID}" != "-" ]; then
+  echo "[WARNING] 端口 ${PORT} 已被进程 ${PORT_PID} 占用，尝试释放..."
+  kill -9 "${PORT_PID}" 2>/dev/null || true
   sleep 1
 fi
 
-# 如果已有 pm2 进程在运行，先停止
+# 如果已有 pm2 进程在运行，先停止并删除
 if pm2 describe robomaster-backend &> /dev/null; then
   echo "停止已有 pm2 进程..."
   pm2 stop robomaster-backend
