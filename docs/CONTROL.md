@@ -1,124 +1,87 @@
 # Control
 
-## 当前阶段范围
+## 当前范围
 
-当前实现 Phase 2 的手动遥控、安全链路和 ROS2 Topic 发布：
+Phase 2 只解决手动遥控、安全归零、Topic 选择和 ROS2 控制桥接，不引入识别、锁定或跟随策略以外的自动行为。
+
+当前已实现：
 
 - 底盘摇杆
 - 云台摇杆
-- 模式切换
-- 急停
-- 解除急停
-- 断连自动归零
-- 失焦自动归零
-- 心跳超时自动归零
-- **ROS2 Topic 发布（真机控制）**
+- 三种控制模式
+- 模式切换强制清零
+- 急停 / 解除急停
+- 页面失焦、关闭、断连、心跳超时自动归零
+- 后端控制 Topic 选择
+- `runtime/control_commands.json` 到 ROS2 Topic 的桥接发布
 
-## 控制模式
+## 模式语义
 
 ### 1. 底盘模式
 
-- 左摇杆控制底盘
-- 右摇杆输入会被记录，但不驱动底盘
+- 只有底盘摇杆生效
+- 云台摇杆输入会被记录，但不会驱动云台
+- 线速度和角速度仅由底盘摇杆产生
 
 ### 2. 云台模式
 
-- 右摇杆控制云台
-- 底盘保持静止
+- 只有云台摇杆生效
+- 底盘保持零速
+- yaw / pitch 角速度仅由云台摇杆产生
 
 ### 3. 联动模式
 
-- 左摇杆控制底盘
-- 右摇杆控制云台
-- 云台左右偏转会叠加低速底盘角速度，便于对准目标
+- 由云台摇杆主控
+- 右摇杆同时输出：
+  - 云台 `yawRate`
+  - 云台 `pitchRate`
+  - 底盘跟随线速度 `linearX`
+  - 底盘跟随角速度 `angularZ`
+- 左摇杆输入在联动模式下被忽略
+- 模式目的是让车体低速跟随云台指向，而不是开放双摇杆自由混控
+
+## 安全策略
+
+1. 任意模式切换时立即清零底盘和云台命令。
+2. 松开摇杆后立即归零。
+3. 页面失焦、标签页隐藏、窗口关闭时归零。
+4. WebSocket 断开时归零。
+5. 心跳超时后归零。
+6. 急停锁定期间忽略新的摇杆输入。
+7. `ros2_bridge.py` 在命令超时后自动发布零指令。
+8. `ros2_bridge.py` 收到退出信号时先发零指令再退出。
+
+## Topic 选择
+
+前端会展示当前候选 Topic，并允许在 Phase 2 内手动改绑：
+
+- `cmd_vel`
+- `gimbalYaw`
+- `gimbalPitch`
+
+后端保存当前选择到 `runtime/control_commands.json`，桥接节点按该文件动态绑定发布器。
 
 ## 控制链路
 
-前端通过 WebSocket 连接：
-
 ```text
-/ws/control
+前端虚拟摇杆
+  -> WebSocket /ws/control
+Node.js 后端 server.js
+  -> runtime/control_commands.json
+Python 桥接 ros2_bridge.py
+  -> 当前选定的 ROS2 Topic
+RoboMaster S1
 ```
 
-后端提供控制状态接口：
+## 远程验证前提
 
-```text
-/api/control/state
-```
+- Ubuntu 20.04
+- ROS2 Foxy
+- 已能发现真实 `cmd_vel` 与云台 Topic
+- 已启动 `ros2_bridge.py`
 
-## ROS2 真机控制桥接
+## 当前边界
 
-### 架构
-
-```text
-前端虚拟手柄
-    ↓ WebSocket
-Node.js 后端（server.js）
-    ↓ 写入 runtime/control_commands.json
-Python3 ROS2 桥接节点（ros2_bridge.py）
-    ↓ 发布 ROS2 Topic
-RoboMaster S1 机器人
-```
-
-### 启动步骤
-
-**1. 启动 Node.js 后端**
-
-```bash
-cd ~/robomaster-s1-ai-system
-bash scripts/start_backend.sh
-```
-
-**2. 启动 ROS2 桥接节点（需要 ROS2 Foxy 环境）**
-
-```bash
-cd ~/robomaster-s1-ai-system
-source /opt/ros/foxy/setup.bash
-bash scripts/start_ros2_bridge.sh
-```
-
-或手动启动：
-
-```bash
-source /opt/ros/foxy/setup.bash
-python3 ros2_bridge.py
-```
-
-**3. 停止 ROS2 桥接**
-
-```bash
-bash scripts/stop_ros2_bridge.sh
-```
-
-### 发布的 Topic
-
-| Topic | 消息类型 | 说明 |
-|-------|----------|------|
-| `/cmd_vel` | `geometry_msgs/Twist` | 底盘线速度和角速度 |
-| `/gimbal/yaw` | `std_msgs/Float64` | 云台偏航角速度 (deg/s) |
-| `/gimbal/pitch` | `std_msgs/Float64` | 云台俯仰角速度 (deg/s) |
-
-### 自动启用逻辑
-
-当后端检测到以下条件时，自动启用 ROS 发布：
-
-1. 发现可用的 `/cmd_vel` Topic
-2. 当前运行环境为 Ubuntu + ROS2 Foxy
-
-不满足条件时，ROS 发布保持禁用，仅验证控制状态机。
-
-### 安全策略
-
-1. 松开摇杆后自动归零。
-2. 浏览器失焦后自动归零。
-3. 页面关闭后自动归零。
-4. WebSocket 断开后自动归零。
-5. 心跳超时后自动归零。
-6. 急停触发后忽略新的摇杆输入，直到解除急停。
-7. **命令超时时自动归零**（ros2_bridge.py 中 500ms 无新命令则发送零指令）。
-8. **进程终止时自动归零**（SIGINT/SIGTERM 时发送停止命令）。
-
-## 当前限制
-
-- Windows 开发环境无法直接测试 ROS2 发布，需在 Ubuntu 20.04 + ROS2 Foxy 环境验证。
-- 云台 Topic 名称 `/gimbal/yaw` 和 `/gimbal/pitch` 为默认值，如机器人使用不同名称需调整 `ros2_bridge.py`。
+- 联动模式仍是保守限速映射，不是闭环姿态控制。
+- 云台合并 Topic 还没有单独发布器，当前 Phase 2 只处理 `yaw` / `pitch` 分离 Topic。
+- 真机验收必须在远程 Ubuntu 20.04 + ROS2 Foxy 环境完成。

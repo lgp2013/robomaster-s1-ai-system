@@ -55,6 +55,7 @@ const controlState = {
   issues: [],
   rosPublishActive: false,
   bridgeMode: 'state-only',
+  modeNotice: '底盘模式只允许底盘摇杆生效，切模式时会立即清零。',
 };
 
 function ensureRuntimeDir() {
@@ -146,6 +147,71 @@ function pickPreferredTopic(candidates) {
   return (exact || candidates[0]).name;
 }
 
+function pickPreferredNamedTopic(candidates, keywords) {
+  if (!candidates.length) {
+    return '';
+  }
+  const loweredKeywords = keywords.map((keyword) => keyword.toLowerCase());
+  const exact = candidates.find((entry) => loweredKeywords.some((keyword) => entry.name.toLowerCase().includes(keyword)));
+  return (exact || candidates[0]).name;
+}
+
+function shouldPublishToRos(selectedTopics, environment) {
+  return Boolean(
+    selectedTopics.cmdVel &&
+    environment.ros2Available &&
+    !environment.os.startsWith('Windows')
+  );
+}
+
+function rebuildControlIssues(environment) {
+  const issues = [];
+  if (!controlState.selectedTopics.cmdVel) {
+    issues.push('未发现可直接使用的 cmd_vel Topic，当前仅验证控制链路与安全归零。');
+  } else if (!controlState.rosPublishActive) {
+    issues.push('已发现 cmd_vel Topic，但当前环境未满足 ROS2 Foxy 发布条件，请在 Ubuntu 20.04 + ROS2 Foxy 中启动 ros2_bridge.py。');
+  } else {
+    issues.push('已发现控制 Topic，ROS2 发布已启用，请确认 ros2_bridge.py 正在运行。');
+  }
+
+  if (!controlState.selectedTopics.gimbalCombined && !controlState.selectedTopics.gimbalYaw && !controlState.selectedTopics.gimbalPitch) {
+    issues.push('未发现云台控制 Topic，当前仅记录云台摇杆输入与状态。');
+  }
+
+  controlState.issues = issues;
+}
+
+function updateSelectedTopics(nextSelection) {
+  const cmdVelCandidates = controlState.candidateTopics.cmdVel.map((topic) => topic.name);
+  const gimbalCandidates = controlState.candidateTopics.gimbal.map((topic) => topic.name);
+
+  controlState.selectedTopics = {
+    cmdVel: cmdVelCandidates.includes(nextSelection.cmdVel) ? nextSelection.cmdVel : '',
+    gimbalYaw: gimbalCandidates.includes(nextSelection.gimbalYaw) ? nextSelection.gimbalYaw : '',
+    gimbalPitch: gimbalCandidates.includes(nextSelection.gimbalPitch) ? nextSelection.gimbalPitch : '',
+    gimbalCombined: gimbalCandidates.includes(nextSelection.gimbalCombined) ? nextSelection.gimbalCombined : '',
+  };
+
+  const environment = detectEnvironment();
+  controlState.rosPublishActive = shouldPublishToRos(controlState.selectedTopics, environment);
+  controlState.bridgeMode = controlState.rosPublishActive
+    ? 'ros-publish-active'
+    : controlState.selectedTopics.cmdVel
+      ? 'topic-detected-awaiting-bridge'
+      : 'state-only';
+  rebuildControlIssues(environment);
+}
+
+function getModeNotice(mode) {
+  if (mode === 'gimbal') {
+    return '云台模式只接受云台摇杆输入，底盘保持零速。';
+  }
+  if (mode === 'follow-gimbal') {
+    return '联动模式由云台摇杆主控：右摇杆同时控制云台和底盘跟随，左摇杆输入被忽略。';
+  }
+  return '底盘模式只接受底盘摇杆输入，云台保持零速。';
+}
+
 function refreshControlTopicSelection(controlTopics) {
   const cmdVelCandidates = controlTopics.filter((topic) => topic.role === 'cmd_vel');
   const gimbalCandidates = controlTopics.filter((topic) => topic.role === 'gimbal');
@@ -189,6 +255,31 @@ function refreshControlTopicSelection(controlTopics) {
     issues.push('未发现云台控制 Topic，当前仅记录云台摇杆输入。');
   }
   controlState.issues = issues;
+}
+
+function refreshControlTopicSelection(controlTopics) {
+  const cmdVelCandidates = controlTopics.filter((topic) => topic.role === 'cmd_vel');
+  const gimbalCandidates = controlTopics.filter((topic) => topic.role === 'gimbal');
+
+  controlState.candidateTopics = {
+    cmdVel: cmdVelCandidates,
+    gimbal: gimbalCandidates,
+  };
+
+  updateSelectedTopics({
+    cmdVel: cmdVelCandidates.some((topic) => topic.name === controlState.selectedTopics.cmdVel)
+      ? controlState.selectedTopics.cmdVel
+      : pickPreferredTopic(cmdVelCandidates),
+    gimbalYaw: gimbalCandidates.some((topic) => topic.name === controlState.selectedTopics.gimbalYaw)
+      ? controlState.selectedTopics.gimbalYaw
+      : pickPreferredNamedTopic(gimbalCandidates, ['gimbal_yaw', '/yaw', 'yaw']),
+    gimbalPitch: gimbalCandidates.some((topic) => topic.name === controlState.selectedTopics.gimbalPitch)
+      ? controlState.selectedTopics.gimbalPitch
+      : pickPreferredNamedTopic(gimbalCandidates, ['gimbal_pitch', '/pitch', 'pitch']),
+    gimbalCombined: gimbalCandidates.some((topic) => topic.name === controlState.selectedTopics.gimbalCombined)
+      ? controlState.selectedTopics.gimbalCombined
+      : pickPreferredNamedTopic(gimbalCandidates, ['gimbal_cmd', 'gimbal', 'head']),
+  });
 }
 
 function discoverRobot() {
@@ -425,6 +516,34 @@ function computeCommands() {
   writeControlCommands();
 }
 
+function computeCommands() {
+  const mode = controlState.mode;
+  const chassis = controlState.chassisAxis;
+  const gimbal = controlState.gimbalAxis;
+
+  let linearX = 0;
+  let angularZ = 0;
+  let yawRate = 0;
+  let pitchRate = 0;
+
+  if (mode === 'chassis') {
+    linearX = round(-chassis.y * 0.8);
+    angularZ = round(chassis.x * 1.4);
+  } else if (mode === 'gimbal') {
+    yawRate = round(gimbal.x * 90, 1);
+    pitchRate = round(-gimbal.y * 60, 1);
+  } else if (mode === 'follow-gimbal') {
+    yawRate = round(gimbal.x * 90, 1);
+    pitchRate = round(-gimbal.y * 60, 1);
+    linearX = round(-gimbal.y * 0.35);
+    angularZ = round(gimbal.x * 0.8);
+  }
+
+  controlState.velocityCommand = { linearX, angularZ };
+  controlState.gimbalCommand = { yawRate, pitchRate };
+  writeControlCommands();
+}
+
 const COMMAND_PATH = path.join(RUNTIME_ROOT, 'control_commands.json');
 
 function writeControlCommands() {
@@ -447,6 +566,27 @@ function writeControlCommands() {
   }
 }
 
+function writeControlCommands() {
+  try {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      linearX: controlState.velocityCommand.linearX,
+      angularZ: controlState.velocityCommand.angularZ,
+      yawRate: controlState.gimbalCommand.yawRate,
+      pitchRate: controlState.gimbalCommand.pitchRate,
+      emergencyStop: controlState.emergencyStop,
+      rosPublishActive: controlState.rosPublishActive,
+      commandAgeMs: controlState.lastCommandAt ? Date.now() - controlState.lastCommandAt : null,
+      mode: controlState.mode,
+      backendState: controlState.backendState,
+      selectedTopics: controlState.selectedTopics,
+    };
+    fs.writeFileSync(COMMAND_PATH, JSON.stringify(payload, null, 2));
+  } catch {
+    // Keep control path non-blocking when runtime write fails.
+  }
+}
+
 function setBackendState(stateLabel, reason) {
   controlState.backendState = stateLabel;
   controlState.lastReason = reason;
@@ -458,6 +598,16 @@ function zeroControl(reason) {
   computeCommands();
   controlState.lastCommandAt = Date.now();
   setBackendState(controlState.emergencyStop ? '急停锁定' : '安全归零', reason);
+}
+
+function switchControlMode(nextMode) {
+  controlState.mode = nextMode;
+  controlState.modeNotice = getModeNotice(nextMode);
+  controlState.chassisAxis = { x: 0, y: 0 };
+  controlState.gimbalAxis = { x: 0, y: 0 };
+  computeCommands();
+  controlState.lastCommandAt = Date.now();
+  setBackendState('模式切换', `${getModeNotice(nextMode)} 已执行清零保护。`);
 }
 
 function getControlSnapshot() {
@@ -482,6 +632,7 @@ function getControlSnapshot() {
     rosConnected: discovery.robot.rosConnected,
     rosPublishActive: controlState.rosPublishActive,
     bridgeMode: controlState.bridgeMode,
+    modeNotice: controlState.modeNotice,
     issues: [
       ...controlState.issues,
       ...(discovery.robot.rosConnected ? [] : ['当前环境未连接 ROS2，控制指令仅在后端状态机中验证。']),
@@ -566,6 +717,50 @@ function applyJoystickMessage(payload) {
   setBackendState('控制中', channel === 'chassis' ? '底盘摇杆输入已更新' : '云台摇杆输入已更新');
 }
 
+function applyJoystickMessage(payload) {
+  const channel = payload.channel === 'gimbal' ? 'gimbal' : 'chassis';
+  const x = clampAxis(Number(payload.x));
+  const y = clampAxis(Number(payload.y));
+
+  controlState.lastInputAt = Date.now();
+  controlState.lastCommandAt = controlState.lastInputAt;
+  controlState.sequence = Number(payload.sequence) || controlState.sequence + 1;
+
+  if (controlState.emergencyStop) {
+    setBackendState('急停锁定', '急停未解除，忽略摇杆输入。');
+    return;
+  }
+
+  if (channel === 'chassis') {
+    controlState.chassisAxis = { x, y };
+    if (controlState.mode !== 'chassis') {
+      computeCommands();
+      if (controlState.mode === 'follow-gimbal') {
+        setBackendState('联动模式', '联动模式只接受云台摇杆，已忽略底盘摇杆输入。');
+      } else {
+        setBackendState('云台模式', '云台模式下底盘摇杆被忽略。');
+      }
+      return;
+    }
+  } else {
+    controlState.gimbalAxis = { x, y };
+    if (controlState.mode === 'chassis') {
+      computeCommands();
+      setBackendState('底盘模式', '底盘模式下云台摇杆被忽略。');
+      return;
+    }
+  }
+
+  computeCommands();
+  if (channel === 'chassis') {
+    setBackendState('控制中', '底盘摇杆输入已更新。');
+  } else if (controlState.mode === 'follow-gimbal') {
+    setBackendState('联动模式', '云台摇杆已驱动云台与底盘联动跟随。');
+  } else {
+    setBackendState('控制中', '云台摇杆输入已更新。');
+  }
+}
+
 function handleControlMessage(client, message) {
   const { socket } = client;
   let parsed;
@@ -603,9 +798,8 @@ function handleControlMessage(client, message) {
       acknowledge(socket, 'set_mode', false, '未知控制模式');
       return;
     }
-    controlState.mode = parsed.mode;
     controlState.lastInputAt = Date.now();
-    computeCommands();
+    switchControlMode(parsed.mode);
     controlState.lastCommandAt = Date.now();
     setBackendState('模式切换', `当前模式：${parsed.mode}`);
     acknowledge(socket, 'set_mode', true, '控制模式已切换');
@@ -1042,6 +1236,29 @@ async function routeRequest(req, res) {
   }
 
   if (requestUrl.pathname === '/api/control/state') {
+    sendJson(res, 200, getControlSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/control/topics' && req.method === 'POST') {
+    let parsedBody = {};
+    try {
+      const rawBody = await readRequestBody(req);
+      parsedBody = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      parsedBody = {};
+    }
+
+    updateSelectedTopics({
+      cmdVel: typeof parsedBody.cmdVel === 'string' ? parsedBody.cmdVel : controlState.selectedTopics.cmdVel,
+      gimbalYaw: typeof parsedBody.gimbalYaw === 'string' ? parsedBody.gimbalYaw : controlState.selectedTopics.gimbalYaw,
+      gimbalPitch: typeof parsedBody.gimbalPitch === 'string' ? parsedBody.gimbalPitch : controlState.selectedTopics.gimbalPitch,
+      gimbalCombined: typeof parsedBody.gimbalCombined === 'string' ? parsedBody.gimbalCombined : controlState.selectedTopics.gimbalCombined,
+    });
+    controlState.lastCommandAt = Date.now();
+    setBackendState('Topic 绑定已更新', '后端已应用新的控制 Topic 选择。');
+    writeControlCommands();
+    broadcastControlState();
     sendJson(res, 200, getControlSnapshot());
     return;
   }

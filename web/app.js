@@ -65,6 +65,10 @@ const el = {
   estopButton: document.getElementById('estopButton'),
   releaseEstopButton: document.getElementById('releaseEstopButton'),
   modeSwitcher: document.getElementById('modeSwitcher'),
+  modeNotice: document.getElementById('modeNotice'),
+  cmdVelSelect: document.getElementById('cmdVelSelect'),
+  gimbalYawSelect: document.getElementById('gimbalYawSelect'),
+  gimbalPitchSelect: document.getElementById('gimbalPitchSelect'),
   chassisPad: document.getElementById('chassisPad'),
   gimbalPad: document.getElementById('gimbalPad'),
   chassisKnob: document.getElementById('chassisKnob'),
@@ -507,6 +511,28 @@ function renderControlModes() {
   }
 }
 
+function renderTopicSelectOptions(select, candidates, selectedValue, placeholder) {
+  if (!select) {
+    return;
+  }
+  const items = [{ value: '', label: placeholder }, ...candidates.map((topic) => ({ value: topic.name, label: topic.name }))];
+  select.innerHTML = '';
+  for (const item of items) {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    option.selected = item.value === (selectedValue || '');
+    select.appendChild(option);
+  }
+}
+
+function renderTopicSelectors(snapshot) {
+  const gimbalCandidates = snapshot?.candidateTopics?.gimbal || [];
+  renderTopicSelectOptions(el.cmdVelSelect, snapshot?.candidateTopics?.cmdVel || [], snapshot?.selectedTopics?.cmdVel || '', '自动选择 / 不发布');
+  renderTopicSelectOptions(el.gimbalYawSelect, gimbalCandidates, snapshot?.selectedTopics?.gimbalYaw || '', '自动选择 / 不单独发布');
+  renderTopicSelectOptions(el.gimbalPitchSelect, gimbalCandidates, snapshot?.selectedTopics?.gimbalPitch || '', '自动选择 / 不单独发布');
+}
+
 function updateControlModeButtons() {
   for (const button of document.querySelectorAll('.mode-chip')) {
     button.classList.toggle('is-active', button.dataset.mode === state.control.mode);
@@ -537,6 +563,7 @@ function updateControlSnapshot(snapshot) {
   el.controlLinkValue.textContent = state.control.socketState;
   el.estopValue.textContent = snapshot.emergencyStop ? '已触发' : '未触发';
   el.controlModeValue.textContent = (state.config?.controlModes || []).find((mode) => mode.id === snapshot.mode)?.label || snapshot.mode;
+  el.modeNotice.textContent = snapshot.modeNotice || '模式切换后会立即清零，避免残留速度继续输出。';
   el.velocityValue.textContent = `${snapshot.velocityCommand.linearX.toFixed(2)} / ${snapshot.velocityCommand.angularZ.toFixed(2)}`;
   el.gimbalCommandValue.textContent = `${snapshot.gimbalCommand.yawRate.toFixed(1)} / ${snapshot.gimbalCommand.pitchRate.toFixed(1)}`;
   el.cmdVelTopicValue.textContent = snapshot.selectedTopics.cmdVel || '未发现';
@@ -553,6 +580,7 @@ function updateControlSnapshot(snapshot) {
     el.commandAgeValue.textContent = `${snapshot.commandAgeMs} ms`;
   }
 
+  renderTopicSelectors(snapshot);
   updateControlModeButtons();
   renderIssues();
 }
@@ -762,6 +790,23 @@ async function fetchControlState() {
   updateControlSnapshot(await response.json());
 }
 
+async function updateControlTopics() {
+  const response = await fetch('/api/control/topics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      cmdVel: el.cmdVelSelect.value,
+      gimbalYaw: el.gimbalYawSelect.value,
+      gimbalPitch: el.gimbalPitchSelect.value,
+      gimbalCombined: state.control.snapshot?.selectedTopics?.gimbalCombined || '',
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`控制 Topic 更新失败：${response.status}`);
+  }
+  updateControlSnapshot(await response.json());
+}
+
 async function rescanRobot() {
   setConnectionState('扫描中');
   const response = await fetch('/api/ros/rescan', {
@@ -817,6 +862,16 @@ function bindEvents() {
       type: 'release_estop',
     });
   });
+
+  for (const select of [el.cmdVelSelect, el.gimbalYawSelect, el.gimbalPitchSelect]) {
+    select.addEventListener('change', async () => {
+      try {
+        await updateControlTopics();
+      } catch (error) {
+        el.modeNotice.textContent = error instanceof Error ? error.message : String(error);
+      }
+    });
+  }
 
   bindJoystick('chassis', el.chassisPad);
   bindJoystick('gimbal', el.gimbalPad);
