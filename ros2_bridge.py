@@ -128,11 +128,14 @@ class RoboMasterBridge(Node):
         pitch_msg.data = float(data.get('pitchRate', 0.0))
         self.gimbal_pitch_pub.publish(pitch_msg)
 
-        # 记录日志（低频）
-        if int(time.time() * 10) % 50 == 0:  # 每 5 秒左右
-            self.get_logger().debug(
+        # 记录日志（每 2 秒一次，方便调试）
+        now_sec = int(time.time())
+        if now_sec % 2 == 0 and now_sec != getattr(self, '_last_log_sec', -1):
+            self._last_log_sec = now_sec
+            self.get_logger().info(
                 f'cmd_vel: linear_x={twist.linear.x:.3f}, angular_z={twist.angular.z:.3f} | '
-                f'gimbal: yaw={yaw_msg.data:.1f}, pitch={pitch_msg.data:.1f}'
+                f'gimbal: yaw={yaw_msg.data:.1f}, pitch={pitch_msg.data:.1f} | '
+                f'mode={data.get("mode", "unknown")} age={command_age_ms}ms'
             )
 
     def publish_zero(self):
@@ -147,6 +150,12 @@ class RoboMasterBridge(Node):
         pitch_msg = Float64()
         pitch_msg.data = 0.0
         self.gimbal_pitch_pub.publish(pitch_msg)
+
+        # 记录归零日志（低频）
+        now_sec = int(time.time())
+        if now_sec % 5 == 0 and now_sec != getattr(self, '_last_zero_log_sec', -1):
+            self._last_zero_log_sec = now_sec
+            self.get_logger().info('发布零命令（停止）')
 
 
 def main():
