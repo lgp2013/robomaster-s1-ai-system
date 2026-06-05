@@ -162,10 +162,13 @@ function refreshControlTopicSelection(controlTopics) {
     gimbalCombined: gimbalCandidates.find((topic) => topic.name.includes('gimbal'))?.name || '',
   };
 
-  // 自动启用 ROS 发布：当发现 cmd_vel 且环境匹配时
+  // 自动启用 ROS 发布：当发现 cmd_vel 且不是 Windows 环境时
+  // 注意：ros2_bridge.py 需要独立运行，Node.js 后端只负责写入命令文件
+  const env = detectEnvironment();
   const canPublish = Boolean(
     controlState.selectedTopics.cmdVel &&
-    detectEnvironment().currentEnvironmentMatchesTarget
+    env.ros2Available &&
+    !env.os.startsWith('Windows')
   );
   controlState.rosPublishActive = canPublish;
   controlState.bridgeMode = canPublish
@@ -178,7 +181,7 @@ function refreshControlTopicSelection(controlTopics) {
   if (!controlState.selectedTopics.cmdVel) {
     issues.push('未发现可直接使用的 cmd_vel Topic，当前仅验证控制链路与安全归零。');
   } else if (!canPublish) {
-    issues.push('已发现 cmd_vel Topic，但当前环境不是 Ubuntu + ROS2 Foxy，ROS 发布已禁用。请在目标环境启动 ros2_bridge.py。');
+    issues.push('已发现 cmd_vel Topic，但当前环境未检测到 ROS2，ROS 发布已禁用。请在 Ubuntu + ROS2 Foxy 环境启动 ros2_bridge.py。');
   } else {
     issues.push('已发现 cmd_vel Topic 且环境匹配，ROS 发布已自动启用。请确保 ros2_bridge.py 正在运行。');
   }
