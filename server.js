@@ -123,12 +123,14 @@ function loadAppConfig() {
   }
 }
 
-function tryExec(command, args) {
+function tryExec(command, args, options = {}) {
   try {
     return execFileSync(command, args, {
       cwd: ROOT,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: options.timeout || 5000,
+      ...options,
     }).trim();
   } catch {
     return '';
