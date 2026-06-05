@@ -1199,6 +1199,61 @@ function handleMockStream(req, res) {
   });
 }
 
+function handleMediaPhotos(req, res) {
+  const locksDir = path.join(RUNTIME_ROOT, 'locks');
+  const photos = [];
+  
+  try {
+    if (fs.existsSync(locksDir)) {
+      const files = fs.readdirSync(locksDir);
+      files
+        .filter(f => f.endsWith('.png'))
+        .sort((a, b) => {
+          const statA = fs.statSync(path.join(locksDir, a));
+          const statB = fs.statSync(path.join(locksDir, b));
+          return statB.mtime.getTime() - statA.mtime.getTime();
+        })
+        .forEach((filename, index) => {
+          const filePath = path.join(locksDir, filename);
+          const stat = fs.statSync(filePath);
+          const id = filename.replace('.png', '');
+          photos.push({
+            id,
+            filename,
+            url: `/api/media/photos/${id}`,
+            lockedAt: stat.mtime.toISOString(),
+            targetLabel: 'person',
+            confidence: null,
+          });
+        });
+    }
+  } catch (error) {
+    console.error('读取媒体文件失败:', error);
+  }
+
+  sendJson(res, 200, {
+    generatedAt: new Date().toISOString(),
+    count: photos.length,
+    photos,
+  });
+}
+
+function handleDeletePhoto(req, res, photoId) {
+  const locksDir = path.join(RUNTIME_ROOT, 'locks');
+  const filePath = path.join(locksDir, `${photoId}.png`);
+  
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      sendJson(res, 200, { ok: true, message: '已删除' });
+    } else {
+      sendJson(res, 404, { error: '照片不存在' });
+    }
+  } catch (error) {
+    sendJson(res, 500, { error: '删除失败', message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 async function handleStreamProxy(req, res, targetUrl) {
   const parsed = sanitizeTargetUrl(targetUrl);
   if (!parsed) {
@@ -1486,6 +1541,42 @@ async function routeRequest(req, res) {
 
   if (requestUrl.pathname === '/api/stream-proxy') {
     handleStreamProxy(req, res, requestUrl.searchParams.get('url') || '');
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/media/photos') {
+    handleMediaPhotos(req, res);
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith('/api/media/photos/') && req.method === 'DELETE') {
+    const photoId = requestUrl.pathname.replace('/api/media/photos/', '');
+    handleDeletePhoto(req, res, photoId);
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith('/api/media/photos/') && req.method === 'GET') {
+    const photoId = requestUrl.pathname.replace('/api/media/photos/', '');
+    const locksDir = path.join(RUNTIME_ROOT, 'locks');
+    const filePath = path.join(locksDir, `${photoId}.png`);
+    
+    if (fs.existsSync(filePath)) {
+      const data = fs.readFileSync(filePath);
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'no-store',
+      });
+      res.end(data);
+    } else {
+      sendJson(res, 404, { error: '照片不存在' });
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === '/media' || requestUrl.pathname === '/media.html') {
+    if (!serveStaticFile(res, path.join(WEB_ROOT, 'media.html'))) {
+      sendText(res, 404, 'Not found');
+    }
     return;
   }
 

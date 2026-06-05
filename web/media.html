@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>媒体管理 - RoboMaster S1</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .media-shell {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .media-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      .media-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      .media-card {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        transition: transform 0.2s, box-shadow 0.2s;
+      }
+      .media-card:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow);
+      }
+      .media-card img {
+        width: 100%;
+        height: 200px;
+        object-fit: cover;
+        display: block;
+      }
+      .media-card-info {
+        padding: 16px;
+      }
+      .media-card-info h3 {
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+        color: var(--text);
+      }
+      .media-card-info p {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+      .media-card-actions {
+        display: flex;
+        gap: 8px;
+        padding: 0 16px 16px;
+      }
+      .media-empty {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--muted);
+      }
+      .media-empty h2 {
+        font-size: 1.5rem;
+        margin-bottom: 12px;
+      }
+      .back-link {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 0.9rem;
+      }
+      .back-link:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="media-shell">
+      <header class="media-header">
+        <div>
+          <h1>媒体管理</h1>
+          <p class="lede">浏览和管理人物锁定后保存的照片</p>
+        </div>
+        <div>
+          <a href="/" class="back-link">← 返回控制台</a>
+        </div>
+      </header>
+
+      <div id="mediaContainer">
+        <div class="media-empty">
+          <h2>正在加载...</h2>
+          <p>请稍候</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function loadMedia() {
+        const container = document.getElementById('mediaContainer');
+        try {
+          const response = await fetch('/api/media/photos');
+          if (!response.ok) {
+            throw new Error('加载失败');
+          }
+          const data = await response.json();
+          
+          if (!data.photos || data.photos.length === 0) {
+            container.innerHTML = `
+              <div class="media-empty">
+                <h2>暂无照片</h2>
+                <p>在控制台中锁定人物后，照片将显示在这里</p>
+              </div>
+            `;
+            return;
+          }
+
+          const grid = document.createElement('div');
+          grid.className = 'media-grid';
+          
+          data.photos.forEach(photo => {
+            const card = document.createElement('div');
+            card.className = 'media-card';
+            card.innerHTML = `
+              <img src="${photo.url}" alt="锁定照片" loading="lazy" />
+              <div class="media-card-info">
+                <h3>${photo.filename}</h3>
+                <p>锁定时间: ${new Date(photo.lockedAt).toLocaleString('zh-CN')}</p>
+                <p>目标: ${photo.targetLabel || '未知'}</p>
+                <p>置信度: ${photo.confidence ? (photo.confidence * 100).toFixed(1) + '%' : '-'}</p>
+              </div>
+              <div class="media-card-actions">
+                <a href="${photo.url}" download="${photo.filename}" class="button primary">下载</a>
+                <button class="button secondary" onclick="deletePhoto('${photo.id}')">删除</button>
+              </div>
+            `;
+            grid.appendChild(card);
+          });
+          
+          container.innerHTML = '';
+          container.appendChild(grid);
+        } catch (error) {
+          container.innerHTML = `
+            <div class="media-empty">
+              <h2>加载失败</h2>
+              <p>${error.message}</p>
+            </div>
+          `;
+        }
+      }
+
+      async function deletePhoto(photoId) {
+        if (!confirm('确定要删除这张照片吗？')) {
+          return;
+        }
+        try {
+          const response = await fetch(`/api/media/photos/${photoId}`, {
+            method: 'DELETE'
+          });
+          if (response.ok) {
+            loadMedia();
+          } else {
+            alert('删除失败');
+          }
+        } catch (error) {
+          alert('删除失败: ' + error.message);
+        }
+      }
+
+      loadMedia();
+    </script>
+  </body>
+</html>

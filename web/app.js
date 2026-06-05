@@ -45,6 +45,7 @@ const DOUBLE_CRLF_BYTES = encoder.encode('\r\n\r\n');
 const el = {
   rescanButton: document.getElementById('rescanButton'),
   mockButton: document.getElementById('mockButton'),
+  mediaButton: document.getElementById('mediaButton'),
   fullscreenButton: document.getElementById('fullscreenButton'),
   qualityRow: document.getElementById('qualityRow'),
   sourceList: document.getElementById('sourceList'),
@@ -952,6 +953,10 @@ function bindEvents() {
 
   el.mockButton.addEventListener('click', () => {
     activateSource('mock-stream', true);
+  });
+
+  el.mediaButton.addEventListener('click', () => {
+    window.open('/media', '_blank');
   });
 
   el.fullscreenButton.addEventListener('click', async () => {
