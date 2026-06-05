@@ -103,9 +103,18 @@ h1 {
 
 .topbar-actions {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  max-width: 100%;
+}
+
+.topbar-actions .button {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .layout {
@@ -441,32 +450,40 @@ h1 {
 .topic-select-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .topic-select-card {
   display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.03);
+  min-width: 0;
 }
 
 .topic-select-label {
   color: var(--muted);
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topic-select-card select {
   width: 100%;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(5, 7, 10, 0.88);
   color: var(--text);
-  padding: 10px 12px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .joystick-grid {
