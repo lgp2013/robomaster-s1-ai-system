@@ -374,17 +374,17 @@ function getControlModeDefinition() {
     {
       id: 'chassis',
       label: '底盘模式',
-      description: '左摇杆控制底盘，右摇杆仅做观察输入。',
+      description: '左摇杆控制底盘移动，云台不动作。',
     },
     {
       id: 'gimbal',
       label: '云台模式',
-      description: '右摇杆控制云台，底盘保持静止。',
+      description: '右摇杆控制云台转动，底盘保持静止。',
     },
     {
       id: 'follow-gimbal',
       label: '联动模式',
-      description: '云台偏转时带动底盘低速联动，便于对准目标。',
+      description: '右摇杆控制云台方向，底盘自动跟随云台指向移动。',
     },
   ];
 }
@@ -399,18 +399,23 @@ function computeCommands() {
   let yawRate = 0;
   let pitchRate = 0;
 
-  if (mode === 'chassis' || mode === 'follow-gimbal') {
+  if (mode === 'chassis') {
+    // 底盘模式：只响应底盘摇杆，控制车辆移动
     linearX = round(-chassis.y * 0.8);
     angularZ = round(chassis.x * 1.4);
-  }
-
-  if (mode === 'gimbal' || mode === 'follow-gimbal') {
+  } else if (mode === 'gimbal') {
+    // 云台模式：只响应云台摇杆，控制云台转动，车辆不移动
     yawRate = round(gimbal.x * 90, 1);
     pitchRate = round(-gimbal.y * 60, 1);
-  }
-
-  if (mode === 'follow-gimbal') {
-    angularZ = round(angularZ + gimbal.x * 0.6);
+  } else if (mode === 'follow-gimbal') {
+    // 联动模式：云台摇杆控制云台方向，底盘自动跟随云台指向移动
+    // 云台控制
+    yawRate = round(gimbal.x * 90, 1);
+    pitchRate = round(-gimbal.y * 60, 1);
+    // 底盘跟随云台方向：使用云台摇杆的 X（偏航）控制底盘转向
+    // 底盘摇杆的 Y（前后）控制底盘前进/后退速度
+    linearX = round(-chassis.y * 0.8);
+    angularZ = round(gimbal.x * 1.4); // 底盘转向跟随云台偏航
   }
 
   controlState.velocityCommand = { linearX, angularZ };
