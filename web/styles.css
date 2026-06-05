@@ -327,6 +327,12 @@ h1 {
 .sidebar {
   display: grid;
   gap: 14px;
+  align-content: start;
+}
+
+.bottom-status {
+  margin-top: 14px;
+  padding: 16px;
 }
 
 .stats-grid,
