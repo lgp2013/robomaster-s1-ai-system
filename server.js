@@ -707,47 +707,96 @@ function getRobotInfoSnapshot() {
 }
 
 function updateRobotInfoFromRos() {
-  if (!detectEnvironment().ros2Available) {
+  const env = detectEnvironment();
+  
+  if (!env.ros2Available) {
+    // ROS2 不可用，设置状态提示
+    robotInfoState.battery = '未连接 ROS2';
+    robotInfoState.velocity = '未连接 ROS2';
+    robotInfoState.gimbalYaw = '未连接 ROS2';
+    robotInfoState.gimbalPitch = '未连接 ROS2';
+    robotInfoState.imuStatus = '未连接 ROS2';
+    robotInfoState.connectionQuality = '未连接 ROS2';
+    robotInfoState.uptime = '未连接 ROS2';
+    robotInfoState.errorCode = '未连接 ROS2';
+    robotInfoState.firmwareVersion = '未连接 ROS2';
+    robotInfoState.lastUpdateAt = new Date().toISOString();
     return;
   }
+  
+  // ROS2 可用，尝试读取各 Topic
+  let anySuccess = false;
+  
   try {
-    // 尝试从 ROS2 Topic 读取机器人状态
     // 电池状态
-    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery_state', '--once']);
+    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery_state', '--once'], { timeout: 3000 });
     if (batteryRaw) {
       const batteryMatch = batteryRaw.match(/percentage:\s*([\d.]+)/);
       if (batteryMatch) {
         robotInfoState.battery = `${(parseFloat(batteryMatch[1]) * 100).toFixed(0)}%`;
+        anySuccess = true;
+      } else {
+        robotInfoState.battery = '格式不匹配';
       }
+    } else {
+      robotInfoState.battery = '无数据';
     }
   } catch {
-    // 静默失败
+    robotInfoState.battery = '读取失败';
   }
+  
   try {
     // 底盘速度反馈
-    const odomRaw = tryExec('ros2', ['topic', 'echo', '/odom', '--once']);
+    const odomRaw = tryExec('ros2', ['topic', 'echo', '/odom', '--once'], { timeout: 3000 });
     if (odomRaw) {
       const linearMatch = odomRaw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
       const angularMatch = odomRaw.match(/angular:\s*\n\s*z:\s*([\d.eE+-]+)/);
       if (linearMatch && angularMatch) {
         robotInfoState.velocity = `${parseFloat(linearMatch[1]).toFixed(2)} / ${parseFloat(angularMatch[1]).toFixed(2)}`;
+        anySuccess = true;
+      } else {
+        robotInfoState.velocity = '格式不匹配';
       }
+    } else {
+      robotInfoState.velocity = '无数据';
     }
   } catch {
-    // 静默失败
+    robotInfoState.velocity = '读取失败';
   }
+  
   try {
     // 云台姿态
-    const gimbalRaw = tryExec('ros2', ['topic', 'echo', '/gimbal/angle', '--once']);
+    const gimbalRaw = tryExec('ros2', ['topic', 'echo', '/gimbal/angle', '--once'], { timeout: 3000 });
     if (gimbalRaw) {
       const yawMatch = gimbalRaw.match(/yaw:\s*([\d.eE+-]+)/);
       const pitchMatch = gimbalRaw.match(/pitch:\s*([\d.eE+-]+)/);
-      if (yawMatch) robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
-      if (pitchMatch) robotInfoState.gimbalPitch = `${parseFloat(pitchMatch[1]).toFixed(1)}°`;
+      if (yawMatch) {
+        robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
+        anySuccess = true;
+      } else {
+        robotInfoState.gimbalYaw = '格式不匹配';
+      }
+      if (pitchMatch) {
+        robotInfoState.gimbalPitch = `${parseFloat(pitchMatch[1]).toFixed(1)}°`;
+        anySuccess = true;
+      } else {
+        robotInfoState.gimbalPitch = '格式不匹配';
+      }
+    } else {
+      robotInfoState.gimbalYaw = '无数据';
+      robotInfoState.gimbalPitch = '无数据';
     }
   } catch {
-    // 静默失败
+    robotInfoState.gimbalYaw = '读取失败';
+    robotInfoState.gimbalPitch = '读取失败';
   }
+  
+  // 其他字段暂不支持直接读取，标记为待实现
+  robotInfoState.imuStatus = anySuccess ? '正常' : '未知';
+  robotInfoState.connectionQuality = anySuccess ? '良好' : '未知';
+  robotInfoState.uptime = anySuccess ? '运行中' : '未知';
+  robotInfoState.errorCode = anySuccess ? '无' : '未知';
+  robotInfoState.firmwareVersion = anySuccess ? '已连接' : '未知';
   robotInfoState.lastUpdateAt = new Date().toISOString();
 }
 
