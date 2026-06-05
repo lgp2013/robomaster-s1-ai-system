@@ -162,12 +162,25 @@ function refreshControlTopicSelection(controlTopics) {
     gimbalCombined: gimbalCandidates.find((topic) => topic.name.includes('gimbal'))?.name || '',
   };
 
-  controlState.rosPublishActive = false;
-  controlState.bridgeMode = controlState.selectedTopics.cmdVel ? 'topic-detected-awaiting-bridge' : 'state-only';
+  // 自动启用 ROS 发布：当发现 cmd_vel 且环境匹配时
+  const canPublish = Boolean(
+    controlState.selectedTopics.cmdVel &&
+    detectEnvironment().currentEnvironmentMatchesTarget
+  );
+  controlState.rosPublishActive = canPublish;
+  controlState.bridgeMode = canPublish
+    ? 'ros-publish-active'
+    : controlState.selectedTopics.cmdVel
+      ? 'topic-detected-awaiting-bridge'
+      : 'state-only';
 
   const issues = [];
   if (!controlState.selectedTopics.cmdVel) {
     issues.push('未发现可直接使用的 cmd_vel Topic，当前仅验证控制链路与安全归零。');
+  } else if (!canPublish) {
+    issues.push('已发现 cmd_vel Topic，但当前环境不是 Ubuntu + ROS2 Foxy，ROS 发布已禁用。请在目标环境启动 ros2_bridge.py。');
+  } else {
+    issues.push('已发现 cmd_vel Topic 且环境匹配，ROS 发布已自动启用。请确保 ros2_bridge.py 正在运行。');
   }
   if (!gimbalCandidates.length) {
     issues.push('未发现云台控制 Topic，当前仅记录云台摇杆输入。');
@@ -399,6 +412,31 @@ function computeCommands() {
 
   controlState.velocityCommand = { linearX, angularZ };
   controlState.gimbalCommand = { yawRate, pitchRate };
+
+  // 写入命令文件供 ROS2 桥接节点读取
+  writeControlCommands();
+}
+
+const COMMAND_PATH = path.join(RUNTIME_ROOT, 'control_commands.json');
+
+function writeControlCommands() {
+  try {
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      linearX: controlState.velocityCommand.linearX,
+      angularZ: controlState.velocityCommand.angularZ,
+      yawRate: controlState.gimbalCommand.yawRate,
+      pitchRate: controlState.gimbalCommand.pitchRate,
+      emergencyStop: controlState.emergencyStop,
+      rosPublishActive: controlState.rosPublishActive,
+      commandAgeMs: controlState.lastCommandAt ? Date.now() - controlState.lastCommandAt : null,
+      mode: controlState.mode,
+      backendState: controlState.backendState,
+    };
+    fs.writeFileSync(COMMAND_PATH, JSON.stringify(payload, null, 2));
+  } catch (err) {
+    // 静默失败，不影响主链路
+  }
 }
 
 function setBackendState(stateLabel, reason) {

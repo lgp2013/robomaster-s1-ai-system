@@ -79,6 +79,8 @@ const el = {
   commandAgeValue: document.getElementById('commandAgeValue'),
   cmdVelTopicValue: document.getElementById('cmdVelTopicValue'),
   gimbalTopicValue: document.getElementById('gimbalTopicValue'),
+  rosPublishValue: document.getElementById('rosPublishValue'),
+  bridgeModeValue: document.getElementById('bridgeModeValue'),
 };
 
 const ctx = el.videoCanvas.getContext('2d', { alpha: false });
@@ -540,6 +542,9 @@ function updateControlSnapshot(snapshot) {
   el.cmdVelTopicValue.textContent = snapshot.selectedTopics.cmdVel || '未发现';
   el.gimbalTopicValue.textContent =
     snapshot.selectedTopics.gimbalCombined || snapshot.selectedTopics.gimbalYaw || snapshot.selectedTopics.gimbalPitch || '未发现';
+  el.rosPublishValue.textContent = snapshot.rosPublishActive ? '已启用' : '未启用';
+  el.rosPublishValue.style.color = snapshot.rosPublishActive ? 'var(--good)' : 'var(--muted)';
+  el.bridgeModeValue.textContent = snapshot.bridgeMode || 'state-only';
   el.releaseEstopButton.disabled = !snapshot.emergencyStop;
 
   if (snapshot.commandAgeMs == null) {
