@@ -41,10 +41,12 @@ class RoboMasterBridge(Node):
             "cmdVel": "",
             "gimbalYaw": "",
             "gimbalPitch": "",
+            "gimbalCombined": "",
         }
         self.cmd_vel_pub = None
         self.gimbal_yaw_pub = None
         self.gimbal_pitch_pub = None
+        self.gimbal_combined_pub = None
 
         self.timer = self.create_timer(1.0 / PUBLISH_HZ, self.publish_commands)
 
@@ -67,6 +69,7 @@ class RoboMasterBridge(Node):
         cmd_vel_topic = str(selected.get("cmdVel", "") or "")
         gimbal_yaw_topic = str(selected.get("gimbalYaw", "") or "")
         gimbal_pitch_topic = str(selected.get("gimbalPitch", "") or "")
+        gimbal_combined_topic = str(selected.get("gimbalCombined", "") or "")
 
         if cmd_vel_topic and cmd_vel_topic != self.topic_bindings["cmdVel"]:
             self.cmd_vel_pub = self.create_publisher(Twist, cmd_vel_topic, self.qos)
@@ -82,6 +85,12 @@ class RoboMasterBridge(Node):
             self.gimbal_pitch_pub = self.create_publisher(Float64, gimbal_pitch_topic, self.qos)
             self.topic_bindings["gimbalPitch"] = gimbal_pitch_topic
             self.get_logger().info(f"gimbal pitch publisher bound to {gimbal_pitch_topic}")
+
+        if gimbal_combined_topic and gimbal_combined_topic != self.topic_bindings["gimbalCombined"]:
+            # 组合云台 Topic 使用 Twist 消息，linear.x = yaw, linear.y = pitch
+            self.gimbal_combined_pub = self.create_publisher(Twist, gimbal_combined_topic, self.qos)
+            self.topic_bindings["gimbalCombined"] = gimbal_combined_topic
+            self.get_logger().info(f"gimbal combined publisher bound to {gimbal_combined_topic}")
 
     def publish_commands(self):
         data = self.read_commands()
@@ -120,6 +129,12 @@ class RoboMasterBridge(Node):
             pitch_msg.data = float(data.get("pitchRate", 0.0))
             self.gimbal_pitch_pub.publish(pitch_msg)
 
+        if self.gimbal_combined_pub is not None:
+            combined_msg = Twist()
+            combined_msg.linear.x = float(data.get("yawRate", 0.0))
+            combined_msg.linear.y = float(data.get("pitchRate", 0.0))
+            self.gimbal_combined_pub.publish(combined_msg)
+
         now_sec = int(time.time())
         if now_sec % 2 == 0 and now_sec != getattr(self, "_last_log_sec", -1):
             self._last_log_sec = now_sec
@@ -148,6 +163,10 @@ class RoboMasterBridge(Node):
             pitch_msg = Float64()
             pitch_msg.data = 0.0
             self.gimbal_pitch_pub.publish(pitch_msg)
+
+        if self.gimbal_combined_pub is not None:
+            combined_msg = Twist()
+            self.gimbal_combined_pub.publish(combined_msg)
 
     def shutdown(self):
         self.get_logger().info("Bridge shutdown, publishing zero command.")

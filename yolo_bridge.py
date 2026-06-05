@@ -60,8 +60,8 @@ class YoloBridge(Node):
             top = (float(det.bbox.center.position.y or 0.0) - height / 2.0) / FRAME_HEIGHT
             detections.append(
                 {
-                    "targetId": str(det.id or f"det-{index}"),
-                    "trackId": str(det.id or f"det-{index}"),
+                    "targetId": str(det.id if det.id is not None else f"det-{index}"),
+                    "trackId": str(det.id if det.id is not None else f"det-{index}"),
                     "classId": int(det.class_id),
                     "className": str(det.class_name),
                     "score": float(det.score),
