@@ -16,6 +16,7 @@ const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
 const MOCK_STREAM_URL = '/api/mock-stream';
 const CONTROL_WS_PATH = '/ws/control';
+const STATUS_WS_PATH = '/ws/status';
 const CONTROL_HEARTBEAT_TIMEOUT_MS = 1200;
 const CONTROL_SAFETY_POLL_MS = 200;
 
@@ -29,6 +30,7 @@ const MIME_TYPES = {
 };
 
 const controlClients = new Set();
+const statusClients = new Set();
 
 const controlState = {
   wsConnected: false,
@@ -246,51 +248,6 @@ function getModeNotice(mode) {
     return '联动模式由云台摇杆主控：右摇杆同时控制云台和底盘跟随，左摇杆输入被忽略。';
   }
   return '底盘模式只接受底盘摇杆输入，云台保持零速。';
-}
-
-function refreshControlTopicSelection(controlTopics) {
-  const cmdVelCandidates = controlTopics.filter((topic) => topic.role === 'cmd_vel');
-  const gimbalCandidates = controlTopics.filter((topic) => topic.role === 'gimbal');
-
-  controlState.candidateTopics = {
-    cmdVel: cmdVelCandidates,
-    gimbal: gimbalCandidates,
-  };
-
-  controlState.selectedTopics = {
-    cmdVel: pickPreferredTopic(cmdVelCandidates),
-    gimbalYaw: gimbalCandidates.find((topic) => topic.name.includes('yaw'))?.name || '',
-    gimbalPitch: gimbalCandidates.find((topic) => topic.name.includes('pitch'))?.name || '',
-    gimbalCombined: gimbalCandidates.find((topic) => topic.name.includes('gimbal'))?.name || '',
-  };
-
-  // 自动启用 ROS 发布：当发现 cmd_vel 且不是 Windows 环境时
-  // 注意：ros2_bridge.py 需要独立运行，Node.js 后端只负责写入命令文件
-  const env = detectEnvironment();
-  const canPublish = Boolean(
-    controlState.selectedTopics.cmdVel &&
-    env.ros2Available &&
-    !env.os.startsWith('Windows')
-  );
-  controlState.rosPublishActive = canPublish;
-  controlState.bridgeMode = canPublish
-    ? 'ros-publish-active'
-    : controlState.selectedTopics.cmdVel
-      ? 'topic-detected-awaiting-bridge'
-      : 'state-only';
-
-  const issues = [];
-  if (!controlState.selectedTopics.cmdVel) {
-    issues.push('未发现可直接使用的 cmd_vel Topic，当前仅验证控制链路与安全归零。');
-  } else if (!canPublish) {
-    issues.push('已发现 cmd_vel Topic，但当前环境未检测到 ROS2，ROS 发布已禁用。请在 Ubuntu + ROS2 Foxy 环境启动 ros2_bridge.py。');
-  } else {
-    issues.push('已发现 cmd_vel Topic 且环境匹配，ROS 发布已自动启用。请确保 ros2_bridge.py 正在运行。');
-  }
-  if (!gimbalCandidates.length) {
-    issues.push('未发现云台控制 Topic，当前仅记录云台摇杆输入。');
-  }
-  controlState.issues = issues;
 }
 
 function refreshControlTopicSelection(controlTopics) {
@@ -568,55 +525,7 @@ function computeCommands() {
   writeControlCommands();
 }
 
-function computeCommands() {
-  const mode = controlState.mode;
-  const chassis = controlState.chassisAxis;
-  const gimbal = controlState.gimbalAxis;
-
-  let linearX = 0;
-  let angularZ = 0;
-  let yawRate = 0;
-  let pitchRate = 0;
-
-  if (mode === 'chassis') {
-    linearX = round(-chassis.y * 0.8);
-    angularZ = round(chassis.x * 1.4);
-  } else if (mode === 'gimbal') {
-    yawRate = round(gimbal.x * 90, 1);
-    pitchRate = round(-gimbal.y * 60, 1);
-  } else if (mode === 'follow-gimbal') {
-    yawRate = round(gimbal.x * 90, 1);
-    pitchRate = round(-gimbal.y * 60, 1);
-    linearX = round(-gimbal.y * 0.35);
-    angularZ = round(gimbal.x * 0.8);
-  }
-
-  controlState.velocityCommand = { linearX, angularZ };
-  controlState.gimbalCommand = { yawRate, pitchRate };
-  writeControlCommands();
-}
-
 const COMMAND_PATH = path.join(RUNTIME_ROOT, 'control_commands.json');
-
-function writeControlCommands() {
-  try {
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      linearX: controlState.velocityCommand.linearX,
-      angularZ: controlState.velocityCommand.angularZ,
-      yawRate: controlState.gimbalCommand.yawRate,
-      pitchRate: controlState.gimbalCommand.pitchRate,
-      emergencyStop: controlState.emergencyStop,
-      rosPublishActive: controlState.rosPublishActive,
-      commandAgeMs: controlState.lastCommandAt ? Date.now() - controlState.lastCommandAt : null,
-      mode: controlState.mode,
-      backendState: controlState.backendState,
-    };
-    fs.writeFileSync(COMMAND_PATH, JSON.stringify(payload, null, 2));
-  } catch (err) {
-    // 静默失败，不影响主链路
-  }
-}
 
 function writeControlCommands() {
   try {
@@ -881,30 +790,6 @@ function applyJoystickMessage(payload) {
   controlState.sequence = Number(payload.sequence) || controlState.sequence + 1;
 
   if (controlState.emergencyStop) {
-    setBackendState('急停锁定', '急停未解除，忽略摇杆输入');
-    return;
-  }
-
-  if (channel === 'chassis') {
-    controlState.chassisAxis = { x, y };
-  } else {
-    controlState.gimbalAxis = { x, y };
-  }
-
-  computeCommands();
-  setBackendState('控制中', channel === 'chassis' ? '底盘摇杆输入已更新' : '云台摇杆输入已更新');
-}
-
-function applyJoystickMessage(payload) {
-  const channel = payload.channel === 'gimbal' ? 'gimbal' : 'chassis';
-  const x = clampAxis(Number(payload.x));
-  const y = clampAxis(Number(payload.y));
-
-  controlState.lastInputAt = Date.now();
-  controlState.lastCommandAt = controlState.lastInputAt;
-  controlState.sequence = Number(payload.sequence) || controlState.sequence + 1;
-
-  if (controlState.emergencyStop) {
     setBackendState('急停锁定', '急停未解除，忽略摇杆输入。');
     return;
   }
@@ -1123,7 +1008,7 @@ function registerControlClient(socket) {
   });
 }
 
-function handleControlUpgrade(req, socket) {
+function handleWebSocketUpgrade(req, socket, isStatus = false) {
   const upgradeHeader = req.headers.upgrade || '';
   const websocketKey = req.headers['sec-websocket-key'];
 
@@ -1148,7 +1033,64 @@ function handleControlUpgrade(req, socket) {
     ].join('\r\n'),
   );
 
-  registerControlClient(socket);
+  if (isStatus) {
+    registerStatusClient(socket);
+  } else {
+    registerControlClient(socket);
+  }
+}
+
+function registerStatusClient(socket) {
+  const client = { socket, id: Math.random().toString(36).slice(2) };
+  statusClients.add(client);
+
+  socket.on('close', () => {
+    statusClients.delete(client);
+  });
+
+  socket.on('error', () => {
+    statusClients.delete(client);
+  });
+
+  // 立即发送当前状态
+  sendStatusMessage(socket);
+}
+
+function sendStatusMessage(socket) {
+  try {
+    const message = JSON.stringify({
+      type: 'robot_status',
+      payload: {
+        ...getRobotInfoSnapshot(),
+        ...getControlSnapshot(),
+      },
+    });
+    const frame = Buffer.from(message);
+    const length = frame.length;
+    let header;
+    if (length < 126) {
+      header = Buffer.from([0x81, length]);
+    } else if (length < 65536) {
+      header = Buffer.from([0x81, 126, (length >> 8) & 0xff, length & 0xff]);
+    } else {
+      header = Buffer.from([
+        0x81, 127, 0, 0, 0, 0, (length >> 24) & 0xff, (length >> 16) & 0xff, (length >> 8) & 0xff, length & 0xff,
+      ]);
+    }
+    socket.write(Buffer.concat([header, frame]));
+  } catch {
+    // 静默失败
+  }
+}
+
+function broadcastStatus() {
+  for (const client of statusClients) {
+    sendStatusMessage(client.socket);
+  }
+}
+
+function handleControlUpgrade(req, socket) {
+  handleWebSocketUpgrade(req, socket, false);
 }
 
 function buildConfigPayload() {
@@ -1569,6 +1511,44 @@ async function routeRequest(req, res) {
     return;
   }
 
+  if (requestUrl.pathname === '/api/control/mode' && req.method === 'POST') {
+    let parsedBody = {};
+    try {
+      const rawBody = await readRequestBody(req);
+      parsedBody = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      parsedBody = {};
+    }
+    const mode = parsedBody.mode;
+    const validModes = ['chassis', 'gimbal', 'follow-gimbal'];
+    if (!validModes.includes(mode)) {
+      sendJson(res, 400, { error: '无效的控制模式', validModes });
+      return;
+    }
+    // 模式切换前归零，确保安全
+    zeroControl('模式切换，后端请求安全归零');
+    controlState.mode = mode;
+    const modeNotices = {
+      chassis: '底盘模式：只移动车辆，云台不动。',
+      gimbal: '云台模式：只调整云台，车辆不移动。',
+      'follow-gimbal': '联动模式：车辆将跟随云台方向。',
+    };
+    controlState.modeNotice = modeNotices[mode] || '';
+    setBackendState('模式已切换', `已切换到${mode === 'chassis' ? '底盘' : mode === 'gimbal' ? '云台' : '联动'}模式`);
+    broadcastControlState();
+    sendJson(res, 200, getControlSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/control/mode') {
+    sendJson(res, 200, {
+      mode: controlState.mode,
+      modes: getControlModeDefinition(),
+      modeNotice: controlState.modeNotice,
+    });
+    return;
+  }
+
   if (requestUrl.pathname === '/api/control/stop' && req.method === 'POST') {
     zeroControl('通过 HTTP 接口触发安全归零');
     broadcastControlState();
@@ -1678,11 +1658,13 @@ const server = http.createServer((req, res) => {
 
 server.on('upgrade', (req, socket) => {
   const requestUrl = new URL(req.url || '/', 'http://localhost');
-  if (requestUrl.pathname !== CONTROL_WS_PATH) {
+  if (requestUrl.pathname === CONTROL_WS_PATH) {
+    handleControlUpgrade(req, socket);
+  } else if (requestUrl.pathname === STATUS_WS_PATH) {
+    handleWebSocketUpgrade(req, socket, true);
+  } else {
     socket.destroy();
-    return;
   }
-  handleControlUpgrade(req, socket);
 });
 
 setInterval(() => {
@@ -1696,6 +1678,11 @@ setInterval(() => {
     broadcastControlState();
   }
 }, CONTROL_SAFETY_POLL_MS);
+
+// 状态广播定时器：每 2 秒广播一次机器人状态
+setInterval(() => {
+  broadcastStatus();
+}, 2000);
 
 server.listen(PORT, HOST, () => {
   discoverRobot();

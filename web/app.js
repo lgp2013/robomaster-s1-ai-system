@@ -532,6 +532,8 @@ function renderControlModes() {
     button.textContent = mode.label;
     button.title = mode.description;
     button.addEventListener('click', () => {
+      // 模式切换前先发送零速度，确保安全
+      stopAllControls('模式切换，前端请求安全归零');
       sendControlMessage({
         type: 'set_mode',
         mode: mode.id,
@@ -760,6 +762,8 @@ function connectControlSocket() {
     state.control.socketState = '已断开';
     el.controlLinkValue.textContent = state.control.socketState;
     clearControlHeartbeat();
+    // WebSocket 断开时归零摇杆状态，确保安全
+    stopAllControls('控制链路断开，前端请求安全归零');
     window.setTimeout(connectControlSocket, 800);
   });
 
