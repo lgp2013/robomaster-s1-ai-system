@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { Readable } = require('node:stream');
+const { createPerceptionRuntime } = require('./perception_runtime');
 
 const ROOT = __dirname;
 const WEB_ROOT = path.join(ROOT, 'web');
@@ -57,6 +58,26 @@ const controlState = {
   bridgeMode: 'state-only',
   modeNotice: '底盘模式只允许底盘摇杆生效，切模式时会立即清零。',
 };
+
+const perceptionRuntime = createPerceptionRuntime({
+  runtimeRoot: RUNTIME_ROOT,
+  onControlUpdate(update) {
+    controlState.velocityCommand = update.velocityCommand;
+    controlState.gimbalCommand = update.gimbalCommand;
+    controlState.lastCommandAt = Date.now();
+    if (update.backendState) {
+      controlState.backendState = update.backendState;
+    }
+    if (update.reason) {
+      controlState.lastReason = update.reason;
+    }
+    writeControlCommands();
+    broadcastControlState();
+  },
+  onSnapshotChange() {
+    broadcastControlState();
+  },
+});
 
 function ensureRuntimeDir() {
   fs.mkdirSync(RUNTIME_ROOT, { recursive: true });
@@ -289,6 +310,7 @@ function discoverRobot() {
   const issues = [];
   const cameraTopics = [];
   const controlTopics = [];
+  const detectionTopics = [];
   const services = [];
 
   if (!environment.ros2Available) {
@@ -332,11 +354,25 @@ function discoverRobot() {
           type: topic.type,
           role: 'gimbal',
         });
+      } else if (lowerType.includes('yolo_msgs/msg/detectionarray') || lowerName.includes('/yolo/')) {
+        detectionTopics.push({
+          name: topic.name,
+          type: topic.type,
+          role: 'detection',
+        });
+      }
+    }
+
+    const serviceListRaw = tryExec('ros2', ['service', 'list', '-t']);
+    for (const line of serviceListRaw.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+      if (line.toLowerCase().includes('/yolo')) {
+        services.push({ name: line, role: 'yolo-service' });
       }
     }
   }
 
   refreshControlTopicSelection(controlTopics);
+  perceptionRuntime.setDiscovery(detectionTopics, services, environment);
 
   const videoSources = [];
   if (configuredStreamUrl) {
@@ -371,6 +407,7 @@ function discoverRobot() {
       discoveryMode: environment.ros2Available ? 'ros2-scan' : 'degraded-mock-only',
       cameraTopics,
       controlTopics,
+      detectionTopics,
       services,
       issues,
     },
@@ -1165,10 +1202,11 @@ async function routeRequest(req, res) {
     sendJson(res, 200, {
       ok: true,
       service: 'robomaster-s1-ai-ui',
-      phase: 'phase-2-manual-teleop',
+      phase: 'phase-5-assisted-follow',
       rosConnected: discovery.robot.rosConnected,
       environment: discovery.environment,
       control: getControlSnapshot(),
+      perception: perceptionRuntime.getSnapshot(),
     });
     return;
   }
@@ -1177,7 +1215,7 @@ async function routeRequest(req, res) {
     sendJson(res, 200, {
       ok: true,
       service: 'robomaster-s1-ai-ui',
-      phase: 'phase-2-manual-teleop',
+      phase: 'phase-5-assisted-follow',
     });
     return;
   }
@@ -1211,7 +1249,9 @@ async function routeRequest(req, res) {
       canPreviewVideo: discovery.videoSources.length > 0,
       canManualControl: true,
       canAutoDiscover: discovery.environment.ros2Available,
-      canRunFollowMode: false,
+      canPerceive: true,
+      canLockPerson: true,
+      canRunFollowMode: true,
     });
     return;
   }
@@ -1232,6 +1272,62 @@ async function routeRequest(req, res) {
       rosConnected: discovery.robot.rosConnected,
       mode: discovery.robot.discoveryMode,
     });
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/perception/state') {
+    sendJson(res, 200, perceptionRuntime.getSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/perception/toggle' && req.method === 'POST') {
+    let parsedBody = {};
+    try {
+      const rawBody = await readRequestBody(req);
+      parsedBody = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      parsedBody = {};
+    }
+    const discovery = loadDiscovery();
+    perceptionRuntime.setEnabled(Boolean(parsedBody.enabled), discovery.environment);
+    sendJson(res, 200, perceptionRuntime.getSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/target/lock' && req.method === 'POST') {
+    let parsedBody = {};
+    try {
+      const rawBody = await readRequestBody(req);
+      parsedBody = rawBody ? JSON.parse(rawBody) : {};
+    } catch {
+      parsedBody = {};
+    }
+    const result = perceptionRuntime.lockTarget(parsedBody.targetId || '', parsedBody.snapshotDataUrl || '');
+    sendJson(res, result.ok ? 200 : 400, {
+      ...result,
+      perception: perceptionRuntime.getSnapshot(),
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/target/unlock' && req.method === 'POST') {
+    perceptionRuntime.unlockTarget();
+    sendJson(res, 200, perceptionRuntime.getSnapshot());
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/follow/enable' && req.method === 'POST') {
+    const result = perceptionRuntime.setFollowEnabled(true);
+    sendJson(res, result.ok ? 200 : 400, {
+      ...result,
+      perception: perceptionRuntime.getSnapshot(),
+    });
+    return;
+  }
+
+  if (requestUrl.pathname === '/api/follow/disable' && req.method === 'POST') {
+    perceptionRuntime.setFollowEnabled(false);
+    sendJson(res, 200, perceptionRuntime.getSnapshot());
     return;
   }
 

@@ -32,6 +32,10 @@ const state = {
       gimbal: { pointerId: null, x: 0, y: 0 },
     },
   },
+  perception: {
+    snapshot: null,
+    timer: null,
+  },
 };
 
 const encoder = new TextEncoder();
@@ -49,6 +53,7 @@ const el = {
   emptyCopy: document.getElementById('emptyCopy'),
   videoCanvas: document.getElementById('videoCanvas'),
   videoFrame: document.getElementById('videoFrame'),
+  detectionLayer: document.getElementById('detectionLayer'),
   emptyState: document.getElementById('emptyState'),
   connectionPill: document.getElementById('connectionPill'),
   rosValue: document.getElementById('rosValue'),
@@ -85,6 +90,18 @@ const el = {
   gimbalTopicValue: document.getElementById('gimbalTopicValue'),
   rosPublishValue: document.getElementById('rosPublishValue'),
   bridgeModeValue: document.getElementById('bridgeModeValue'),
+  togglePerceptionButton: document.getElementById('togglePerceptionButton'),
+  unlockTargetButton: document.getElementById('unlockTargetButton'),
+  enableFollowButton: document.getElementById('enableFollowButton'),
+  disableFollowButton: document.getElementById('disableFollowButton'),
+  perceptionEnabledValue: document.getElementById('perceptionEnabledValue'),
+  perceptionProviderValue: document.getElementById('perceptionProviderValue'),
+  perceptionFpsValue: document.getElementById('perceptionFpsValue'),
+  perceptionCountValue: document.getElementById('perceptionCountValue'),
+  lockStatusValue: document.getElementById('lockStatusValue'),
+  lockTargetValue: document.getElementById('lockTargetValue'),
+  followStatusValue: document.getElementById('followStatusValue'),
+  followWarningValue: document.getElementById('followWarningValue'),
 };
 
 const ctx = el.videoCanvas.getContext('2d', { alpha: false });
@@ -432,9 +449,11 @@ function renderQualityProfiles() {
 
 function renderIssues() {
   const controlIssues = state.control.snapshot?.issues || [];
+  const perceptionIssues = state.perception.snapshot?.issues || [];
   const items = [
     ...(state.discovery?.robot?.issues || []),
     ...controlIssues,
+    ...perceptionIssues,
     ...(state.discovery?.troubleshooting || []),
   ];
   el.issuesList.innerHTML = '';
@@ -531,6 +550,81 @@ function renderTopicSelectors(snapshot) {
   renderTopicSelectOptions(el.cmdVelSelect, snapshot?.candidateTopics?.cmdVel || [], snapshot?.selectedTopics?.cmdVel || '', '自动选择 / 不发布');
   renderTopicSelectOptions(el.gimbalYawSelect, gimbalCandidates, snapshot?.selectedTopics?.gimbalYaw || '', '自动选择 / 不单独发布');
   renderTopicSelectOptions(el.gimbalPitchSelect, gimbalCandidates, snapshot?.selectedTopics?.gimbalPitch || '', '自动选择 / 不单独发布');
+}
+
+function captureCurrentFrame() {
+  try {
+    return el.videoCanvas.toDataURL('image/png');
+  } catch {
+    return '';
+  }
+}
+
+async function postJson(url, payload = {}) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json();
+  if (!response.ok) {
+    throw new Error(body.message || body.error || `请求失败：${response.status}`);
+  }
+  return body;
+}
+
+function renderDetectionLayer(snapshot) {
+  el.detectionLayer.innerHTML = '';
+  const detections = snapshot?.detections || [];
+  for (const detection of detections) {
+    const node = document.createElement('button');
+    const isPerson = detection.className.toLowerCase() === 'person';
+    const isLocked = snapshot?.lock?.targetId === detection.targetId;
+    node.type = 'button';
+    node.className = `detection-box${isPerson ? ' is-person' : ''}${isLocked ? ' is-locked' : ''}`;
+    node.style.left = `${detection.bbox.x * 100}%`;
+    node.style.top = `${detection.bbox.y * 100}%`;
+    node.style.width = `${detection.bbox.width * 100}%`;
+    node.style.height = `${detection.bbox.height * 100}%`;
+    node.innerHTML = `<span>${detection.className} ${(detection.score * 100).toFixed(0)}%</span>`;
+    node.title = isPerson ? '点击锁定人物目标' : 'Phase 4 只允许锁定人物目标';
+    node.addEventListener('click', async () => {
+      if (!isPerson) {
+        el.followWarningValue.textContent = 'Phase 4 只允许锁定人物目标';
+        return;
+      }
+      try {
+        const result = await postJson('/api/target/lock', {
+          targetId: detection.targetId,
+          snapshotDataUrl: captureCurrentFrame(),
+        });
+        updatePerceptionSnapshot(result.perception);
+      } catch (error) {
+        el.followWarningValue.textContent = error instanceof Error ? error.message : String(error);
+      }
+    });
+    el.detectionLayer.appendChild(node);
+  }
+}
+
+function updatePerceptionSnapshot(snapshot) {
+  if (!snapshot) {
+    return;
+  }
+  state.perception.snapshot = snapshot;
+  el.perceptionEnabledValue.textContent = snapshot.enabled ? '已启用' : '未启用';
+  el.perceptionProviderValue.textContent = snapshot.providerMode || snapshot.provider || 'mock';
+  el.perceptionFpsValue.textContent = Number(snapshot.inferenceFps || 0).toFixed(1);
+  el.perceptionCountValue.textContent = String(snapshot.detectionCount || 0);
+  el.lockStatusValue.textContent = snapshot.lock?.message || '未锁定';
+  el.lockTargetValue.textContent = snapshot.lock?.active ? `${snapshot.lock.className} / ${snapshot.lock.trackId || snapshot.lock.targetId}` : '-';
+  el.followStatusValue.textContent = snapshot.follow?.enabled ? (snapshot.follow.status || 'tracking') : '未启用';
+  el.followWarningValue.textContent = snapshot.follow?.warning || '-';
+  el.togglePerceptionButton.textContent = snapshot.enabled ? '关闭感知' : '启用感知';
+  el.unlockTargetButton.disabled = !snapshot.lock?.active;
+  el.enableFollowButton.disabled = !snapshot.lock?.active || snapshot.follow?.enabled !== false;
+  el.disableFollowButton.disabled = !snapshot.follow?.enabled;
+  renderDetectionLayer(snapshot);
 }
 
 function updateControlModeButtons() {
@@ -807,6 +901,14 @@ async function updateControlTopics() {
   updateControlSnapshot(await response.json());
 }
 
+async function fetchPerceptionState() {
+  const response = await fetch('/api/perception/state', { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`感知状态加载失败：${response.status}`);
+  }
+  updatePerceptionSnapshot(await response.json());
+}
+
 async function rescanRobot() {
   setConnectionState('扫描中');
   const response = await fetch('/api/ros/rescan', {
@@ -863,6 +965,43 @@ function bindEvents() {
     });
   });
 
+  el.togglePerceptionButton.addEventListener('click', async () => {
+    try {
+      const snapshot = state.perception.snapshot;
+      const result = await postJson('/api/perception/toggle', {
+        enabled: !snapshot?.enabled,
+      });
+      updatePerceptionSnapshot(result);
+    } catch (error) {
+      el.followWarningValue.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  el.unlockTargetButton.addEventListener('click', async () => {
+    try {
+      updatePerceptionSnapshot(await postJson('/api/target/unlock'));
+    } catch (error) {
+      el.followWarningValue.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  el.enableFollowButton.addEventListener('click', async () => {
+    try {
+      const result = await postJson('/api/follow/enable');
+      updatePerceptionSnapshot(result.perception);
+    } catch (error) {
+      el.followWarningValue.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
+  el.disableFollowButton.addEventListener('click', async () => {
+    try {
+      updatePerceptionSnapshot(await postJson('/api/follow/disable'));
+    } catch (error) {
+      el.followWarningValue.textContent = error instanceof Error ? error.message : String(error);
+    }
+  });
+
   for (const select of [el.cmdVelSelect, el.gimbalYawSelect, el.gimbalPitchSelect]) {
     select.addEventListener('change', async () => {
       try {
@@ -914,6 +1053,17 @@ function startWatchdog() {
   }, 500);
 }
 
+function startPerceptionPolling() {
+  if (state.perception.timer) {
+    clearInterval(state.perception.timer);
+  }
+  state.perception.timer = setInterval(() => {
+    fetchPerceptionState().catch(() => {
+      // Keep preview and teleop usable during perception polling failure.
+    });
+  }, 350);
+}
+
 async function bootstrap() {
   bindEvents();
   drawDisconnectedOverlay('等待自动发现', '系统正在读取 ROS2、视频源和控制状态。');
@@ -924,6 +1074,7 @@ async function bootstrap() {
   try {
     await loadConfig();
     await fetchControlState();
+    await fetchPerceptionState();
   } catch (error) {
     drawDisconnectedOverlay('配置加载失败', error instanceof Error ? error.message : String(error));
     el.emptyCopy.textContent = '无法读取后端配置。';
@@ -939,6 +1090,7 @@ async function bootstrap() {
   connectControlSocket();
   scheduleCommandAgeTicker();
   startWatchdog();
+  startPerceptionPolling();
 
   if (state.activeSource) {
     connectToCurrentSource();

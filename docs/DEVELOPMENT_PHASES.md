@@ -1,87 +1,66 @@
 # Development Phases
 
-This plan follows `ros2_robomaster_codex_prompt_v5.md` and treats the repository as a clean rebuild.
+This repository now treats Phase 0 through Phase 5 as implemented in code, with real-hardware validation still required on Ubuntu 20.04 + ROS2 Foxy.
 
-## Phase 0: Audit And Repository Baseline
+## Phase 0
 
-Goal: establish a minimal, inspectable project skeleton before adding behavior.
+- Environment audit
+- Deployment scripts
+- GitHub workflow
+- Remote test server manual
 
-Status:
+Status: complete
 
-- Complete
+## Phase 1
 
-Key outputs:
+- ROS2 auto-discovery baseline
+- MJPEG preview
+- Local mock stream
+- Chinese operator UI
 
-- 环境、部署、测试、故障排查文档
-- 远程测试服务器手册
-- GitHub 工作流手册
+Status: complete
 
-## Phase 1: ROS2 自动发现与视频预览基线
+## Phase 2
 
-Goal: make the camera image clearly visible, stable, and independent from perception.
+- Dual virtual joysticks
+- Three control modes
+- Topic selection
+- Emergency stop and safety zeroing
+- ROS2 control bridge
 
-Status:
+Status: complete, pending real robot validation
 
-- Complete as a deployable baseline
+## Phase 3
 
-Current result:
+- Detection pipeline state API
+- Detection overlay on preview
+- Independent perception toggle
+- `yolo_bridge.py` runtime JSON bridge
+- `third_party/yolo_ros` dependency audit
 
-- Node HTTP 服务提供静态页面、自动发现接口、MJPEG 代理和本地模拟视频
-- 前端不再以手填 Stream URL 作为主流程
-- 中文界面和 100% 缩放布局已完成
+Status: complete, pending Foxy-compatible detector validation
 
-Remaining validation:
+## Phase 4
 
-- Ubuntu 20.04 + ROS2 Foxy 真实摄像头 Topic 自动发现
-- 真实 `web_video_server` 链路验证
+- Person-only target lock
+- Lock snapshot persistence
+- Lock status in UI
+- Loss-of-target state
 
-## Phase 2: 手动遥控与安全链路
+Status: complete, pending real detection stream validation
 
-Goal: implement safe, usable hand control with explicit mode separation.
+## Phase 5
 
-Status:
+- Conservative assisted follow
+- Gimbal-priority target tracking
+- Low-speed chassis assist
+- Target-loss search
+- Ten-second warning timeout
 
-- Implemented in degraded mode
+Status: complete, pending real robot safety validation
 
-Current result:
+## Phase 6
 
-- 后端新增控制状态机、控制接口和 `/ws/control`
-- 前端新增底盘摇杆、云台摇杆、模式切换、急停、解除急停
-- 松手、失焦、断连、心跳超时都会自动归零
+- Scene operations page placeholder only
 
-Remaining validation:
-
-- Ubuntu 20.04 + ROS2 Foxy 环境中的真实 Topic 发布
-- 真机 `cmd_vel` 与云台控制 Topic 联调
-
-## Phase 3: 感知显示
-
-Goal: display detection results without affecting preview or control.
-
-Status:
-
-- Not started
-
-## Phase 4: 目标锁定
-
-Goal: allow locking only on supported targets, with clear state and capture behavior.
-
-Status:
-
-- Not started
-
-## Phase 5: 保守跟随 MVP
-
-Goal: provide a conservative, low-speed follow mode behind a safety boundary.
-
-Status:
-
-- Not started
-
-## Phase 6: 场景操作占位
-
-Goal: preserve an expansion surface without adding complexity now.
-
-Status:
-
-- Not started
+Status: not started

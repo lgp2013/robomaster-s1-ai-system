@@ -1,29 +1,36 @@
 # UI Guide
 
-## 当前界面目标
+## Main Areas
 
-- 视频区为主视觉中心
-- 100% 浏览器缩放可用
-- 中文界面
-- 不要求用户手填 Stream URL 作为主流程
+### Video Preview
 
-## 主要区域
+- Main visual focus
+- Detection boxes are rendered on top of the preview
+- Person boxes can be clicked for Phase 4 target lock
 
-- 顶部状态条：阶段、标题、扫描按钮、模拟视频按钮、全屏按钮
-- 左侧主区：视频预览、已发现视频源、质量切换
-- 右侧信息区：ROS2 状态、视频状态、发现问题、阶段说明
+### Manual Control
 
-## 当前按钮
+- Left joystick: chassis
+- Right joystick: gimbal
+- Mode switcher: chassis / gimbal / follow-gimbal
+- Emergency stop is always visible
 
-- `重新扫描机器人`
-- `使用本地模拟视频`
-- `全屏预览`
+### Perception and Follow
 
-## 当前状态文案
+- `启用感知`: starts mock or runtime detection display
+- `取消锁定`: clears current person lock and stops follow
+- `启用辅助跟随`: starts Phase 5 conservative follow after a person is locked
+- `停止辅助跟随`: forces return to zero autonomous commands
 
-- `未连接`
-- `连接中`
-- `已连接`
-- `已断开`
-- `卡顿重连中`
+## Locking Rules
 
+- Only `person` detections are lockable
+- Clicking non-person detections shows a refusal message
+- Locking saves one snapshot into `runtime/locks/`
+
+## Follow Rules
+
+- Follow is disabled until a person is locked
+- Follow drives the gimbal first
+- Chassis motion remains low speed
+- Lost target triggers search first, warning later

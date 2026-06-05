@@ -206,6 +206,44 @@ h1 {
   opacity: 0.18;
 }
 
+.detection-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.detection-box {
+  position: absolute;
+  border: 2px solid rgba(255, 184, 77, 0.92);
+  background: rgba(255, 184, 77, 0.10);
+  color: var(--text);
+  display: block;
+  cursor: pointer;
+  padding: 0;
+}
+
+.detection-box.is-person {
+  border-color: rgba(124, 211, 140, 0.95);
+  background: rgba(124, 211, 140, 0.12);
+}
+
+.detection-box.is-locked {
+  border-color: rgba(255, 200, 87, 1);
+  box-shadow: 0 0 0 2px rgba(255, 200, 87, 0.28);
+}
+
+.detection-box span {
+  position: absolute;
+  left: -1px;
+  top: -28px;
+  padding: 4px 8px;
+  border-radius: 8px 8px 8px 0;
+  background: rgba(6, 8, 11, 0.92);
+  border: 1px solid currentColor;
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+
 .overlay-readout {
   position: absolute;
   right: 14px;
@@ -378,6 +416,13 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 14px;
+}
+
+.perception-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
   margin-bottom: 14px;
 }
 
@@ -592,6 +637,7 @@ h1 {
   .stats-grid,
   .control-stats,
   .estop-row,
+  .perception-actions,
   .topic-select-grid {
     grid-template-columns: 1fr;
   }

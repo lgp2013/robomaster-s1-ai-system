@@ -35,6 +35,7 @@
             <div class="video-frame" id="videoFrame">
               <canvas id="videoCanvas" width="1280" height="720" aria-label="视频预览画布"></canvas>
               <div class="overlay-grid" aria-hidden="true"></div>
+              <div class="detection-layer" id="detectionLayer" aria-label="检测叠框层"></div>
               <div class="overlay-readout">
                 <span>视频</span>
                 <span>预览</span>
@@ -148,6 +149,33 @@
               <div><dt>云台 Topic</dt><dd id="gimbalTopicValue">未发现</dd></div>
               <div><dt>ROS 发布</dt><dd id="rosPublishValue">未启用</dd></div>
               <div><dt>桥接模式</dt><dd id="bridgeModeValue">state-only</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel perception-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>感知与跟随</h2>
+                <p>检测、人物锁定和低速辅助跟随链路。</p>
+              </div>
+            </div>
+
+            <div class="perception-actions">
+              <button id="togglePerceptionButton" class="button secondary">启用感知</button>
+              <button id="unlockTargetButton" class="button secondary">取消锁定</button>
+              <button id="enableFollowButton" class="button primary">启用辅助跟随</button>
+              <button id="disableFollowButton" class="button secondary">停止辅助跟随</button>
+            </div>
+
+            <dl class="control-stats">
+              <div><dt>感知状态</dt><dd id="perceptionEnabledValue">未启用</dd></div>
+              <div><dt>检测来源</dt><dd id="perceptionProviderValue">mock</dd></div>
+              <div><dt>检测帧率</dt><dd id="perceptionFpsValue">0.0</dd></div>
+              <div><dt>检测数量</dt><dd id="perceptionCountValue">0</dd></div>
+              <div><dt>锁定状态</dt><dd id="lockStatusValue">未锁定</dd></div>
+              <div><dt>锁定对象</dt><dd id="lockTargetValue">-</dd></div>
+              <div><dt>跟随状态</dt><dd id="followStatusValue">未启用</dd></div>
+              <div><dt>跟随告警</dt><dd id="followWarningValue">-</dd></div>
             </dl>
           </section>
 

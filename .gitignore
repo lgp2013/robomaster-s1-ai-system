@@ -6,6 +6,8 @@ dist/
 .env
 .env.*
 runtime/
+third_party/
+__pycache__/
 *.pt
 *.pth
 *.onnx

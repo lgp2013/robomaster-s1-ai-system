@@ -1,25 +1,30 @@
 # Open Source Dependencies
 
-This document records third-party dependencies used by the project.
+## yolo_ros
 
-At the current Phase 0 state, no runtime dependencies have been introduced yet.
+- Project: `yolo_ros`
+- URL: `https://github.com/mgonzs13/yolo_ros`
+- Branch: `main`
+- Commit: `61c9cf363403d1eaa360c8f12f6bcfe7ca993c7f`
+- Local path: `third_party/yolo_ros`
+- License: `GPL-3.0`
+- Usage in this repository:
+  - Referenced for ROS2 detection topic shape and launch expectations
+  - Audited as the default upstream candidate for Phase 3
+  - Not vendored into runtime execution directly
 
-## Planned Recording Rule
+## Compatibility Notes
 
-When a dependency is added, record:
+- Current upstream README documents builds for Humble, Iron, Jazzy, Kilted, Lyrical, and Rolling.
+- The current upstream main branch does not declare ROS2 Foxy support.
+- `pyproject.toml` pins `ultralytics==8.4.6`, which also raises compatibility risk for Ubuntu 20.04 + ROS2 Foxy.
+- Because of that, this repository uses an independent bridge:
+  - `yolo_bridge.py`
+  - `runtime/detections.json`
+  - `/api/perception/state`
 
-- Name
-- Source repository or package index
-- Acquisition method
-- Version or commit
-- License
-- Purpose
-- Whether source code was copied into this repository
-- Notes about compatibility or constraints
+## Final Decision
 
-## Current State
-
-| Name | Source | Method | Version/Commit | License | Purpose | Copied Into Repo | Notes |
-|---|---|---|---|---|---|---|---|
-| None yet | N/A | N/A | N/A | N/A | N/A | No | Phase 0 only |
-
+- Keep `yolo_ros` as the audited upstream reference.
+- Do not assume its latest main branch is deployable on Foxy.
+- Use the local detection bridge and UI overlay path as the stable integration seam.

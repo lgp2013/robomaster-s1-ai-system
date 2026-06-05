@@ -1,33 +1,37 @@
 # Phase Acceptance
 
-## Phase 0
-
-- 已读取 `AGENTS.md`
-- 已读取 v5 提示词
-- 已记录当前环境与目标环境差异
-- 已补齐远程服务器与 GitHub 工作流文档
-
 ## Phase 1
 
-- 前端主界面已中文化
-- 页面不再以手填 Stream URL 作为主流程
-- 页面默认展示自动发现结果
-- 后端已生成 `runtime/robot_discovery.json`
-- 后端已提供自动发现与视频源接口
-- 页面支持本地模拟视频链路
-- 页面布局已改为视频主视图优先
-- 后端已支持通过 `HOST` / `PORT` 环境变量绑定远程地址
+- No manual stream URL required
+- Preview connects to discovered or configured source
+- Main layout works at 100% browser zoom
 
 ## Phase 2
 
-- 后端已提供 `/ws/control`
-- 后端已提供 `/api/control/state`
-- 前端已提供底盘摇杆、云台摇杆、模式切换、急停、解除急停
-- 松手、失焦、断连、心跳超时均会自动归零
-- 本地烟雾测试已验证控制状态机可用
+- Dual joystick teleop works
+- Emergency stop works
+- Mode switching zeroes stale commands
+- Topic selection writes back to state
 
-## 尚未通过的 Phase 2 项
+## Phase 3
 
-- 未在 Ubuntu 20.04 + ROS2 Foxy 上完成真实 `cmd_vel` 发布验证
-- 未在真机上完成云台控制 Topic 联调
-- 未在真实 ROS2 环境中确认自动发现到的控制 Topic 是否足够覆盖底盘和云台
+- Perception can be enabled independently
+- Detection boxes appear on the preview
+- Video preview remains usable while detections update
+- `/api/perception/state` returns current detections
+
+## Phase 4
+
+- Only `person` detections can be locked
+- Locking stores one snapshot
+- Lock state is visible in the UI
+- Unlock returns to plain detection mode
+
+## Phase 5
+
+- Assisted follow requires an explicit person lock
+- Gimbal tracks first
+- Chassis speed remains conservative
+- Lost target triggers search
+- Lost target for 10 seconds raises a warning
+- Emergency stop remains effective during follow
