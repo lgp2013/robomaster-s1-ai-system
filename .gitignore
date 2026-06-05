@@ -5,9 +5,7 @@ dist/
 .cache/
 .env
 .env.*
-runtime/logs/
-runtime/*.pid
-runtime/*.log
+runtime/
 *.pt
 *.pth
 *.onnx
