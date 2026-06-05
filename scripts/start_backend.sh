@@ -25,7 +25,17 @@ if ! command -v node &> /dev/null; then
   exit 1
 fi
 
-# 如果已有进程在运行，先停止
+HOST="${HOST:-0.0.0.0}"
+PORT="${PORT:-3000}"
+
+# 检查端口是否被占用
+if command -v lsof &> /dev/null && lsof -i :"${PORT}" &> /dev/null; then
+  echo "[WARNING] 端口 ${PORT} 已被占用，尝试释放..."
+  lsof -i :"${PORT}" | grep LISTEN | awk '{print $2}' | xargs kill -9 2>/dev/null || true
+  sleep 1
+fi
+
+# 如果已有 pm2 进程在运行，先停止
 if pm2 describe robomaster-backend &> /dev/null; then
   echo "停止已有 pm2 进程..."
   pm2 stop robomaster-backend
@@ -33,16 +43,17 @@ if pm2 describe robomaster-backend &> /dev/null; then
 fi
 
 # 使用 pm2 启动
-HOST="${HOST:-0.0.0.0}" PORT="${PORT:-3000}" pm2 start server.js \
+HOST="${HOST}" PORT="${PORT}" pm2 start server.js \
   --name robomaster-backend \
-  --env HOST="${HOST:-0.0.0.0}" \
-  --env PORT="${PORT:-3000}" \
+  --env HOST="${HOST}" \
+  --env PORT="${PORT}" \
   --log "${LOG_DIR}/backend.log" \
   --error "${LOG_DIR}/backend-error.log" \
   --output "${LOG_DIR}/backend-out.log"
 
 echo ""
 echo "后端已启动"
+echo "监听: http://${HOST}:${PORT}"
 echo "查看状态: pm2 status"
 echo "查看日志: pm2 logs robomaster-backend"
 echo "停止后端: pm2 stop robomaster-backend"
