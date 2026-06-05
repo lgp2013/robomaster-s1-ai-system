@@ -710,7 +710,7 @@ function getRobotInfoSnapshot() {
 
 function updateRobotInfoFromRos() {
   const env = detectEnvironment();
-  
+
   if (!env.ros2Available) {
     // ROS2 不可用，设置状态提示
     robotInfoState.battery = '未连接 ROS2';
@@ -725,17 +725,21 @@ function updateRobotInfoFromRos() {
     robotInfoState.lastUpdateAt = new Date().toISOString();
     return;
   }
-  
+
   // ROS2 可用，尝试读取各 Topic
   let anySuccess = false;
-  
+
   try {
-    // 电池状态
-    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery_state', '--once'], { timeout: 3000 });
+    // 电池状态 — 使用 /battery (不是 /battery_state)
+    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery', '--once'], { timeout: 3000 });
     if (batteryRaw) {
-      const batteryMatch = batteryRaw.match(/percentage:\s*([\d.]+)/);
+      // 尝试多种可能的字段格式
+      let batteryMatch = batteryRaw.match(/percentage:\s*([\d.]+)/);
+      if (!batteryMatch) {
+        batteryMatch = batteryRaw.match(/voltage:\s*([\d.]+)/);
+      }
       if (batteryMatch) {
-        robotInfoState.battery = `${(parseFloat(batteryMatch[1]) * 100).toFixed(0)}%`;
+        robotInfoState.battery = `${parseFloat(batteryMatch[1]).toFixed(1)}%`;
         anySuccess = true;
       } else {
         robotInfoState.battery = '格式不匹配';
@@ -746,9 +750,9 @@ function updateRobotInfoFromRos() {
   } catch {
     robotInfoState.battery = '读取失败';
   }
-  
+
   try {
-    // 底盘速度反馈
+    // 底盘速度反馈 — 使用 /odom
     const odomRaw = tryExec('ros2', ['topic', 'echo', '/odom', '--once'], { timeout: 3000 });
     if (odomRaw) {
       const linearMatch = odomRaw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
@@ -765,13 +769,13 @@ function updateRobotInfoFromRos() {
   } catch {
     robotInfoState.velocity = '读取失败';
   }
-  
+
   try {
-    // 云台姿态
-    const gimbalRaw = tryExec('ros2', ['topic', 'echo', '/gimbal/angle', '--once'], { timeout: 3000 });
-    if (gimbalRaw) {
-      const yawMatch = gimbalRaw.match(/yaw:\s*([\d.eE+-]+)/);
-      const pitchMatch = gimbalRaw.match(/pitch:\s*([\d.eE+-]+)/);
+    // 云台姿态 — 使用 /state 或 /joint_states
+    const stateRaw = tryExec('ros2', ['topic', 'echo', '/state', '--once'], { timeout: 3000 });
+    if (stateRaw) {
+      const yawMatch = stateRaw.match(/yaw:\s*([\d.eE+-]+)/);
+      const pitchMatch = stateRaw.match(/pitch:\s*([\d.eE+-]+)/);
       if (yawMatch) {
         robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
         anySuccess = true;
@@ -792,9 +796,21 @@ function updateRobotInfoFromRos() {
     robotInfoState.gimbalYaw = '读取失败';
     robotInfoState.gimbalPitch = '读取失败';
   }
-  
+
+  try {
+    // IMU 状态 — 使用 /imu
+    const imuRaw = tryExec('ros2', ['topic', 'echo', '/imu', '--once'], { timeout: 3000 });
+    if (imuRaw) {
+      robotInfoState.imuStatus = '正常';
+      anySuccess = true;
+    } else {
+      robotInfoState.imuStatus = '无数据';
+    }
+  } catch {
+    robotInfoState.imuStatus = '读取失败';
+  }
+
   // 其他字段暂不支持直接读取，标记为待实现
-  robotInfoState.imuStatus = anySuccess ? '正常' : '未知';
   robotInfoState.connectionQuality = anySuccess ? '良好' : '未知';
   robotInfoState.uptime = anySuccess ? '运行中' : '未知';
   robotInfoState.errorCode = anySuccess ? '无' : '未知';
