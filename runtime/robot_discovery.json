@@ -1,0 +1,52 @@
+{
+  "generatedAt": "2026-06-05T08:53:26.247Z",
+  "environment": {
+    "os": "Windows 10.0.26200",
+    "nodeVersion": "v24.14.0",
+    "pythonVersion": "Python 3.8.10",
+    "rosDistro": "not-detected",
+    "ros2Available": false,
+    "ros2Path": "",
+    "ros2Version": "",
+    "targetEnvironment": "Ubuntu 20.04 + ROS2 Foxy",
+    "currentEnvironmentMatchesTarget": false
+  },
+  "robot": {
+    "rosConnected": false,
+    "discoveryMode": "degraded-mock-only",
+    "cameraTopics": [],
+    "controlTopics": [],
+    "services": [],
+    "issues": [
+      "当前环境未检测到 ROS2 命令，无法执行真实机器人自动发现。",
+      "当前工作区运行在 Windows 上，目标联调环境应为 Ubuntu 20.04 + ROS2 Foxy。"
+    ]
+  },
+  "videoSources": [
+    {
+      "id": "configured-stream",
+      "label": "web_video_server 默认视频源",
+      "type": "remote-mjpeg",
+      "url": "/api/stream-proxy?url=http%3A%2F%2F10.10.10.140%3A8080%2Fstream%3Ftopic%3D%2Fcamera%2Fimage_color%26type%3Dmjpeg",
+      "upstreamUrl": "http://10.10.10.140:8080/stream?topic=/camera/image_color&type=mjpeg",
+      "resolutionHint": "1920 x 1080",
+      "status": "configured",
+      "isDefault": true
+    },
+    {
+      "id": "mock-stream",
+      "label": "本地模拟视频",
+      "type": "mock-mjpeg",
+      "url": "/api/mock-stream",
+      "upstreamUrl": "",
+      "resolutionHint": "1280 x 720",
+      "status": "ready",
+      "isDefault": false
+    }
+  ],
+  "troubleshooting": [
+    "如需真实联调，请在 Ubuntu 20.04 + ROS2 Foxy 环境中启动后端。",
+    "如需真实视频源，请先确认摄像头 Topic 已发布，再执行重新扫描。",
+    "当前 Windows 工作区仅提供本地模拟视频和配置文件中的 MJPEG 视频源。"
+  ]
+}

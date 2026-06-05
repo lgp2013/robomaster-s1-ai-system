@@ -1,0 +1,11 @@
+{
+  "name": "robomaster-s1-ai",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  }
+}
+

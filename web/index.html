@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoboMaster S1 智能控制台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar panel">
+        <div class="brand">
+          <div class="eyebrow">Phase 1 / ROS2 自动发现与视频预览</div>
+          <h1>RoboMaster S1 智能控制台</h1>
+          <p class="lede">先稳定视频链路，再进入遥控、识别和后续跟随阶段。</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="rescanButton" class="button secondary">重新扫描机器人</button>
+          <button id="mockButton" class="button secondary">使用本地模拟视频</button>
+          <button id="fullscreenButton" class="button primary">全屏预览</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="preview-panel panel">
+          <div class="panel-head">
+            <div>
+              <h2>视频预览</h2>
+              <p id="videoSummary">系统将优先使用自动发现到的视频源。</p>
+            </div>
+            <div class="status-pill" id="connectionPill">未连接</div>
+          </div>
+
+          <div class="video-frame" id="videoFrame">
+            <canvas id="videoCanvas" width="1280" height="720" aria-label="视频预览画布"></canvas>
+            <div class="overlay-grid" aria-hidden="true"></div>
+            <div class="overlay-readout">
+              <span>视频</span>
+              <span>预览</span>
+              <span>独立链路</span>
+            </div>
+            <div class="empty-state" id="emptyState">
+              <div class="empty-title">等待视频源</div>
+              <div class="empty-copy" id="emptyCopy">系统正在加载自动发现结果。</div>
+            </div>
+          </div>
+
+          <section class="source-panel">
+            <div class="source-panel-head">
+              <h3>已发现视频源</h3>
+              <p id="sourceHint">优先显示 ROS2 自动发现结果；当前环境不可用时降级为本地模拟视频。</p>
+            </div>
+            <div id="sourceList" class="source-list"></div>
+          </section>
+
+          <div class="quality-row" id="qualityRow"></div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel status-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>系统状态</h2>
+                <p>ROS2、视频链路与发现结果摘要。</p>
+              </div>
+            </div>
+            <dl class="stats-grid">
+              <div><dt>ROS2 状态</dt><dd id="rosValue">未检测</dd></div>
+              <div><dt>视频状态</dt><dd id="stateValue">空闲</dd></div>
+              <div><dt>FPS</dt><dd id="fpsValue">0.0</dd></div>
+              <div><dt>首帧延迟</dt><dd id="latencyValue">-</dd></div>
+              <div><dt>帧间隔</dt><dd id="ageValue">-</dd></div>
+              <div><dt>重连次数</dt><dd id="reconnectsValue">0</dd></div>
+              <div><dt>分辨率</dt><dd id="resolutionValue">-</dd></div>
+              <div><dt>编码格式</dt><dd id="codecValue">-</dd></div>
+              <div><dt>当前来源</dt><dd id="modeValue">未选择</dd></div>
+              <div><dt>运行环境</dt><dd id="environmentValue">未检测</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel issues-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>发现结果</h2>
+                <p>自动发现失败时展示原因和排查方向。</p>
+              </div>
+            </div>
+            <ul class="notes" id="issuesList"></ul>
+          </section>
+
+          <section class="panel notes-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>阶段说明</h2>
+                <p>当前阶段故意不做的内容。</p>
+              </div>
+            </div>
+            <ul class="notes">
+              <li>本阶段不实现手动遥控。</li>
+              <li>本阶段不接入 YOLO 或目标锁定。</li>
+              <li>本阶段不实现自动跟随。</li>
+              <li>视频链路必须独立于识别和控制链路。</li>
+            </ul>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
