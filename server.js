@@ -705,6 +705,17 @@ function readRosTopicOnceAsync(candidates, timeout = 3000) {
   return new Promise((resolve) => {
     let index = 0;
     
+    // 尝试获取 ros2 的完整路径
+    let ros2Cmd = 'ros2';
+    try {
+      const ros2Path = execFileSync('which', ['ros2'], { encoding: 'utf8', timeout: 2000 }).trim();
+      if (ros2Path) {
+        ros2Cmd = ros2Path;
+      }
+    } catch {
+      // 使用默认的 'ros2'
+    }
+    
     function tryNext() {
       if (index >= candidates.length) {
         resolve({ topic: '', raw: '' });
@@ -712,11 +723,15 @@ function readRosTopicOnceAsync(candidates, timeout = 3000) {
       }
       
       const topic = candidates[index++];
-      execFile('ros2', ['topic', 'echo', topic, '--once'], {
+      execFile(ros2Cmd, ['topic', 'echo', topic, '--once'], {
         cwd: ROOT,
         encoding: 'utf8',
         timeout,
-      }, (error, stdout) => {
+        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+      }, (error, stdout, stderr) => {
+        if (error) {
+          console.log(`[robot-info] Failed to read ${topic}:`, error.message);
+        }
         if (!error && stdout && stdout.trim()) {
           resolve({ topic, raw: stdout.trim() });
         } else {
