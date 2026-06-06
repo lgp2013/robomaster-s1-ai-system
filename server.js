@@ -763,10 +763,14 @@ async function updateRobotInfoFromRos() {
 
   if (!env.ros2Available) {
     robotInfoState.imuStatus = '未连接 ROS2';
+    console.log('[robot-info] ROS2 not available, skipping topic read');
     return;
   }
 
+  console.log('[robot-info] ROS2 available, reading topics...');
+
   const batteryResult = await readRosTopicOnceAsync(['/battery', '/battery_state']);
+  console.log('[robot-info] battery result:', batteryResult.topic || 'none', batteryResult.raw ? 'has data' : 'no data');
   if (batteryResult.raw) {
     const percentageMatch = batteryResult.raw.match(/percentage:\s*([\d.]+)/);
     const voltageMatch = batteryResult.raw.match(/voltage:\s*([\d.]+)/);
