@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>场景操作 - RoboMaster S1</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .scene-shell {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .scene-panel {
+        display: grid;
+        gap: 20px;
+      }
+      .scene-card {
+        padding: 24px;
+      }
+      .scene-list {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+      .scene-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="scene-shell">
+      <header class="topbar panel">
+        <div class="brand">
+          <div class="eyebrow">Phase 6 / 场景操作占位页</div>
+          <h1>场景操作</h1>
+          <p class="lede">场景操作将在后续阶段开放。当前页面只保留入口、约束和验收占位，不提供假动作。</p>
+        </div>
+        <div class="scene-actions">
+          <a href="/" class="button secondary">返回控制台</a>
+          <a href="/media" class="button secondary">打开媒体管理</a>
+        </div>
+      </header>
+
+      <main class="scene-panel">
+        <section class="panel scene-card">
+          <h2>当前状态</h2>
+          <p>本页已保留正式入口，但不会直接控制机器人，也不会伪造场景自动化结果。</p>
+        </section>
+
+        <section class="panel scene-card">
+          <h2>后续规划</h2>
+          <ol class="scene-list">
+            <li>场景任务模板与安全前置校验</li>
+            <li>任务启动前的目标锁定确认</li>
+            <li>任务执行中断、急停和回滚策略</li>
+          </ol>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

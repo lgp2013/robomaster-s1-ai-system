@@ -52,4 +52,5 @@ bash scripts/stop_yolo_bridge.sh
 
 - `runtime/control_commands.json`
 - `runtime/detections.json`
-- `runtime/locks/*.png`
+- `runtime/media/locked_targets/*.png`
+- `runtime/media/locked_targets/index.json`

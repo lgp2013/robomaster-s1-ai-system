@@ -16,7 +16,7 @@ function createPerceptionRuntime(options) {
     onSnapshotChange,
   } = options;
 
-  const lockRoot = path.join(runtimeRoot, 'locks');
+  const lockRoot = path.join(runtimeRoot, 'media', 'locked_targets');
   const detectionPath = path.join(runtimeRoot, 'detections.json');
 
   fs.mkdirSync(lockRoot, { recursive: true });

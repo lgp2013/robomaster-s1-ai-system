@@ -46,6 +46,7 @@ const el = {
   rescanButton: document.getElementById('rescanButton'),
   mockButton: document.getElementById('mockButton'),
   mediaButton: document.getElementById('mediaButton'),
+  sceneButton: document.getElementById('sceneButton'),
   fullscreenButton: document.getElementById('fullscreenButton'),
   qualityRow: document.getElementById('qualityRow'),
   sourceList: document.getElementById('sourceList'),
@@ -961,6 +962,10 @@ function bindEvents() {
 
   el.mediaButton.addEventListener('click', () => {
     window.open('/media', '_blank');
+  });
+
+  el.sceneButton.addEventListener('click', () => {
+    window.open('/scene', '_blank');
   });
 
   el.fullscreenButton.addEventListener('click', async () => {

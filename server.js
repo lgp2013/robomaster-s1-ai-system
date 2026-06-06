@@ -12,6 +12,9 @@ const WEB_ROOT = path.join(ROOT, 'web');
 const RUNTIME_ROOT = path.join(ROOT, 'runtime');
 const DISCOVERY_PATH = path.join(RUNTIME_ROOT, 'robot_discovery.json');
 const APP_CONFIG_PATH = path.join(RUNTIME_ROOT, 'app_config.json');
+const MEDIA_ROOT = path.join(RUNTIME_ROOT, 'media');
+const LOCKED_TARGETS_ROOT = path.join(MEDIA_ROOT, 'locked_targets');
+const MEDIA_INDEX_PATH = path.join(LOCKED_TARGETS_ROOT, 'index.json');
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
 const MOCK_STREAM_URL = '/api/mock-stream';
@@ -96,6 +99,7 @@ const perceptionRuntime = createPerceptionRuntime({
 
 function ensureRuntimeDir() {
   fs.mkdirSync(RUNTIME_ROOT, { recursive: true });
+  fs.mkdirSync(LOCKED_TARGETS_ROOT, { recursive: true });
 }
 
 function loadAppConfig() {
@@ -409,6 +413,61 @@ function loadDiscovery() {
   return discoverRobot();
 }
 
+function getLockedTargetPhotoPath(photoId) {
+  return path.join(LOCKED_TARGETS_ROOT, `${photoId}.png`);
+}
+
+function buildMediaIndex() {
+  ensureRuntimeDir();
+  const photos = [];
+
+  if (fs.existsSync(LOCKED_TARGETS_ROOT)) {
+    const files = fs.readdirSync(LOCKED_TARGETS_ROOT);
+    files
+      .filter((filename) => filename.endsWith('.png'))
+      .sort((a, b) => {
+        const statA = fs.statSync(path.join(LOCKED_TARGETS_ROOT, a));
+        const statB = fs.statSync(path.join(LOCKED_TARGETS_ROOT, b));
+        return statB.mtime.getTime() - statA.mtime.getTime();
+      })
+      .forEach((filename) => {
+        const filePath = path.join(LOCKED_TARGETS_ROOT, filename);
+        const stat = fs.statSync(filePath);
+        const id = path.basename(filename, '.png');
+        photos.push({
+          id,
+          filename,
+          url: `/api/media/photos/${id}`,
+          lockedAt: stat.mtime.toISOString(),
+          targetLabel: 'person',
+          confidence: null,
+        });
+      });
+  }
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    count: photos.length,
+    photos,
+  };
+
+  fs.writeFileSync(MEDIA_INDEX_PATH, JSON.stringify(payload, null, 2));
+  return payload;
+}
+
+function loadMediaIndex() {
+  ensureRuntimeDir();
+  if (!fs.existsSync(MEDIA_INDEX_PATH)) {
+    return buildMediaIndex();
+  }
+
+  try {
+    return JSON.parse(fs.readFileSync(MEDIA_INDEX_PATH, 'utf8'));
+  } catch {
+    return buildMediaIndex();
+  }
+}
+
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -508,14 +567,11 @@ function computeCommands() {
     yawRate = round(gimbal.x * 90, 1);
     pitchRate = round(-gimbal.y * 60, 1);
   } else if (mode === 'follow-gimbal') {
-    // 联动模式：云台摇杆控制云台方向，底盘自动跟随云台指向移动
-    // 云台控制
+    // 联动模式：右摇杆主控，底盘仅跟随云台摇杆方向
     yawRate = round(gimbal.x * 90, 1);
     pitchRate = round(-gimbal.y * 60, 1);
-    // 底盘跟随云台方向：使用云台摇杆的 X（偏航）控制底盘转向
-    // 底盘摇杆的 Y（前后）控制底盘前进/后退速度
-    linearX = round(-chassis.y * 0.8);
-    angularZ = round(gimbal.x * 1.4); // 底盘转向跟随云台偏航
+    linearX = round(-gimbal.y * 0.24);
+    angularZ = round(gimbal.x * 0.8);
   }
 
   controlState.velocityCommand = { linearX, angularZ };
@@ -617,114 +673,143 @@ function getRobotInfoSnapshot() {
   };
 }
 
+function parseJsonObject(text) {
+  if (!text) {
+    return null;
+  }
+
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+  } catch {
+    return null;
+  }
+}
+
+function readRosTopicOnce(candidates, timeout = 3000) {
+  for (const topic of candidates) {
+    const raw = tryExec('ros2', ['topic', 'echo', topic, '--once'], { timeout });
+    if (raw) {
+      return { topic, raw };
+    }
+  }
+  return { topic: '', raw: '' };
+}
+
+function formatPercent(rawValue) {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) {
+    return '';
+  }
+  const normalized = numeric <= 1 ? numeric * 100 : numeric;
+  return `${normalized.toFixed(1)}%`;
+}
+
+function formatSeconds(rawValue) {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) {
+    return '';
+  }
+  return `${numeric.toFixed(0)}s`;
+}
+
 function updateRobotInfoFromRos() {
   const env = detectEnvironment();
+  const unavailable = '未发现';
+
+  robotInfoState.battery = unavailable;
+  robotInfoState.velocity = unavailable;
+  robotInfoState.gimbalYaw = unavailable;
+  robotInfoState.gimbalPitch = unavailable;
+  robotInfoState.imuStatus = unavailable;
+  robotInfoState.connectionQuality = unavailable;
+  robotInfoState.uptime = unavailable;
+  robotInfoState.errorCode = unavailable;
+  robotInfoState.firmwareVersion = unavailable;
+  robotInfoState.lastUpdateAt = new Date().toISOString();
 
   if (!env.ros2Available) {
-    // ROS2 不可用，设置状态提示
-    robotInfoState.battery = '未连接 ROS2';
-    robotInfoState.velocity = '未连接 ROS2';
-    robotInfoState.gimbalYaw = '未连接 ROS2';
-    robotInfoState.gimbalPitch = '未连接 ROS2';
     robotInfoState.imuStatus = '未连接 ROS2';
-    robotInfoState.connectionQuality = '未连接 ROS2';
-    robotInfoState.uptime = '未连接 ROS2';
-    robotInfoState.errorCode = '未连接 ROS2';
-    robotInfoState.firmwareVersion = '未连接 ROS2';
-    robotInfoState.lastUpdateAt = new Date().toISOString();
     return;
   }
 
-  // ROS2 可用，尝试读取各 Topic
-  let anySuccess = false;
-
-  try {
-    // 电池状态 — 使用 /battery (不是 /battery_state)
-    const batteryRaw = tryExec('ros2', ['topic', 'echo', '/battery', '--once'], { timeout: 3000 });
-    if (batteryRaw) {
-      // 尝试多种可能的字段格式
-      let batteryMatch = batteryRaw.match(/percentage:\s*([\d.]+)/);
-      if (!batteryMatch) {
-        batteryMatch = batteryRaw.match(/voltage:\s*([\d.]+)/);
-      }
-      if (batteryMatch) {
-        robotInfoState.battery = `${parseFloat(batteryMatch[1]).toFixed(1)}%`;
-        anySuccess = true;
-      } else {
-        robotInfoState.battery = '格式不匹配';
-      }
-    } else {
-      robotInfoState.battery = '无数据';
+  const batteryResult = readRosTopicOnce(['/battery', '/battery_state']);
+  if (batteryResult.raw) {
+    const percentageMatch = batteryResult.raw.match(/percentage:\s*([\d.]+)/);
+    const voltageMatch = batteryResult.raw.match(/voltage:\s*([\d.]+)/);
+    if (percentageMatch) {
+      robotInfoState.battery = formatPercent(percentageMatch[1]) || unavailable;
+    } else if (voltageMatch) {
+      robotInfoState.battery = `${parseFloat(voltageMatch[1]).toFixed(2)} V`;
     }
-  } catch {
-    robotInfoState.battery = '读取失败';
   }
 
-  try {
-    // 底盘速度反馈 — 使用 /odom
-    const odomRaw = tryExec('ros2', ['topic', 'echo', '/odom', '--once'], { timeout: 3000 });
-    if (odomRaw) {
-      const linearMatch = odomRaw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
-      const angularMatch = odomRaw.match(/angular:\s*\n\s*z:\s*([\d.eE+-]+)/);
-      if (linearMatch && angularMatch) {
-        robotInfoState.velocity = `${parseFloat(linearMatch[1]).toFixed(2)} / ${parseFloat(angularMatch[1]).toFixed(2)}`;
-        anySuccess = true;
-      } else {
-        robotInfoState.velocity = '格式不匹配';
-      }
-    } else {
-      robotInfoState.velocity = '无数据';
+  const odomResult = readRosTopicOnce(['/odom']);
+  if (odomResult.raw) {
+    const linearMatch = odomResult.raw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
+    const angularMatch = odomResult.raw.match(/angular:\s*\n\s*z:\s*([\d.eE+-]+)/);
+    if (linearMatch && angularMatch) {
+      robotInfoState.velocity = `${parseFloat(linearMatch[1]).toFixed(2)} / ${parseFloat(angularMatch[1]).toFixed(2)}`;
     }
-  } catch {
-    robotInfoState.velocity = '读取失败';
   }
 
-  try {
-    // 云台姿态 — 使用 /state 或 /joint_states
-    const stateRaw = tryExec('ros2', ['topic', 'echo', '/state', '--once'], { timeout: 3000 });
-    if (stateRaw) {
-      const yawMatch = stateRaw.match(/yaw:\s*([\d.eE+-]+)/);
-      const pitchMatch = stateRaw.match(/pitch:\s*([\d.eE+-]+)/);
-      if (yawMatch) {
-        robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
-        anySuccess = true;
-      } else {
-        robotInfoState.gimbalYaw = '格式不匹配';
-      }
-      if (pitchMatch) {
-        robotInfoState.gimbalPitch = `${parseFloat(pitchMatch[1]).toFixed(1)}°`;
-        anySuccess = true;
-      } else {
-        robotInfoState.gimbalPitch = '格式不匹配';
-      }
-    } else {
-      robotInfoState.gimbalYaw = '无数据';
-      robotInfoState.gimbalPitch = '无数据';
+  const gimbalResult = readRosTopicOnce(['/gimbal/angle', '/state', '/joint_states']);
+  if (gimbalResult.raw) {
+    const yawMatch = gimbalResult.raw.match(/(?:yaw|x):\s*([\d.eE+-]+)/);
+    const pitchMatch = gimbalResult.raw.match(/(?:pitch|y):\s*([\d.eE+-]+)/);
+    if (yawMatch) {
+      robotInfoState.gimbalYaw = `${parseFloat(yawMatch[1]).toFixed(1)}°`;
     }
-  } catch {
-    robotInfoState.gimbalYaw = '读取失败';
-    robotInfoState.gimbalPitch = '读取失败';
+    if (pitchMatch) {
+      robotInfoState.gimbalPitch = `${parseFloat(pitchMatch[1]).toFixed(1)}°`;
+    }
   }
 
-  try {
-    // IMU 状态 — 使用 /imu
-    const imuRaw = tryExec('ros2', ['topic', 'echo', '/imu', '--once'], { timeout: 3000 });
-    if (imuRaw) {
-      robotInfoState.imuStatus = '正常';
-      anySuccess = true;
-    } else {
-      robotInfoState.imuStatus = '无数据';
-    }
-  } catch {
-    robotInfoState.imuStatus = '读取失败';
+  const imuResult = readRosTopicOnce(['/imu', '/imu/data']);
+  if (imuResult.raw) {
+    robotInfoState.imuStatus = '正常';
   }
 
-  // 其他字段暂不支持直接读取，标记为待实现
-  robotInfoState.connectionQuality = anySuccess ? '良好' : '未知';
-  robotInfoState.uptime = anySuccess ? '运行中' : '未知';
-  robotInfoState.errorCode = anySuccess ? '无' : '未知';
-  robotInfoState.firmwareVersion = anySuccess ? '已连接' : '未知';
-  robotInfoState.lastUpdateAt = new Date().toISOString();
+  const statusResult = readRosTopicOnce(['/robot_status', '/status']);
+  if (statusResult.raw) {
+    const statusJson = parseJsonObject(statusResult.raw);
+    if (statusJson) {
+      if (statusJson.connection_quality != null) {
+        robotInfoState.connectionQuality = formatPercent(statusJson.connection_quality) || String(statusJson.connection_quality);
+      }
+      if (statusJson.uptime != null) {
+        robotInfoState.uptime = formatSeconds(statusJson.uptime) || String(statusJson.uptime);
+      }
+      if (statusJson.error_code != null) {
+        robotInfoState.errorCode = String(statusJson.error_code);
+      }
+      if (statusJson.firmware_version != null) {
+        robotInfoState.firmwareVersion = String(statusJson.firmware_version);
+      }
+    } else {
+      const connectionMatch = statusResult.raw.match(/connection_quality:\s*([\d.]+)/);
+      const uptimeMatch = statusResult.raw.match(/uptime:\s*([\d.]+)/);
+      const errorMatch = statusResult.raw.match(/error_code:\s*([^\n]+)/);
+      const firmwareMatch = statusResult.raw.match(/firmware_version:\s*([^\n]+)/);
+      if (connectionMatch) {
+        robotInfoState.connectionQuality = formatPercent(connectionMatch[1]) || unavailable;
+      }
+      if (uptimeMatch) {
+        robotInfoState.uptime = formatSeconds(uptimeMatch[1]) || unavailable;
+      }
+      if (errorMatch) {
+        robotInfoState.errorCode = errorMatch[1].trim();
+      }
+      if (firmwareMatch) {
+        robotInfoState.firmwareVersion = firmwareMatch[1].trim();
+      }
+    }
+  }
 }
 
 function websocketFrame(text) {
@@ -795,8 +880,8 @@ function applyJoystickMessage(payload) {
   }
 
   if (channel === 'chassis') {
-    controlState.chassisAxis = { x, y };
     if (controlState.mode !== 'chassis') {
+      controlState.chassisAxis = { x: 0, y: 0 };
       computeCommands();
       if (controlState.mode === 'follow-gimbal') {
         setBackendState('联动模式', '联动模式只接受云台摇杆，已忽略底盘摇杆输入。');
@@ -805,13 +890,15 @@ function applyJoystickMessage(payload) {
       }
       return;
     }
+    controlState.chassisAxis = { x, y };
   } else {
-    controlState.gimbalAxis = { x, y };
     if (controlState.mode === 'chassis') {
+      controlState.gimbalAxis = { x: 0, y: 0 };
       computeCommands();
       setBackendState('底盘模式', '底盘模式下云台摇杆被忽略。');
       return;
     }
+    controlState.gimbalAxis = { x, y };
   }
 
   computeCommands();
@@ -1209,57 +1296,40 @@ function handleMockStream(req, res) {
 }
 
 function handleMediaPhotos(req, res) {
-  const locksDir = path.join(RUNTIME_ROOT, 'locks');
-  const photos = [];
-  
   try {
-    if (fs.existsSync(locksDir)) {
-      const files = fs.readdirSync(locksDir);
-      files
-        .filter(f => f.endsWith('.png'))
-        .sort((a, b) => {
-          const statA = fs.statSync(path.join(locksDir, a));
-          const statB = fs.statSync(path.join(locksDir, b));
-          return statB.mtime.getTime() - statA.mtime.getTime();
-        })
-        .forEach((filename, index) => {
-          const filePath = path.join(locksDir, filename);
-          const stat = fs.statSync(filePath);
-          const id = filename.replace('.png', '');
-          photos.push({
-            id,
-            filename,
-            url: `/api/media/photos/${id}`,
-            lockedAt: stat.mtime.toISOString(),
-            targetLabel: 'person',
-            confidence: null,
-          });
-        });
-    }
+    sendJson(res, 200, loadMediaIndex());
   } catch (error) {
-    console.error('读取媒体文件失败:', error);
+    sendJson(res, 500, {
+      error: '读取媒体文件失败',
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
-
-  sendJson(res, 200, {
-    generatedAt: new Date().toISOString(),
-    count: photos.length,
-    photos,
-  });
 }
 
 function handleDeletePhoto(req, res, photoId) {
-  const locksDir = path.join(RUNTIME_ROOT, 'locks');
-  const filePath = path.join(locksDir, `${photoId}.png`);
+  const filePath = getLockedTargetPhotoPath(photoId);
   
   try {
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
+      buildMediaIndex();
       sendJson(res, 200, { ok: true, message: '已删除' });
     } else {
       sendJson(res, 404, { error: '照片不存在' });
     }
   } catch (error) {
     sendJson(res, 500, { error: '删除失败', message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+function handleMediaRescan(req, res) {
+  try {
+    sendJson(res, 200, buildMediaIndex());
+  } catch (error) {
+    sendJson(res, 500, {
+      error: '刷新媒体索引失败',
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -1596,6 +1666,11 @@ async function routeRequest(req, res) {
     return;
   }
 
+  if (requestUrl.pathname === '/api/media/rescan' && req.method === 'POST') {
+    handleMediaRescan(req, res);
+    return;
+  }
+
   if (requestUrl.pathname.startsWith('/api/media/photos/') && req.method === 'DELETE') {
     const photoId = requestUrl.pathname.replace('/api/media/photos/', '');
     handleDeletePhoto(req, res, photoId);
@@ -1604,8 +1679,7 @@ async function routeRequest(req, res) {
 
   if (requestUrl.pathname.startsWith('/api/media/photos/') && req.method === 'GET') {
     const photoId = requestUrl.pathname.replace('/api/media/photos/', '');
-    const locksDir = path.join(RUNTIME_ROOT, 'locks');
-    const filePath = path.join(locksDir, `${photoId}.png`);
+    const filePath = getLockedTargetPhotoPath(photoId);
     
     if (fs.existsSync(filePath)) {
       const data = fs.readFileSync(filePath);
@@ -1622,6 +1696,13 @@ async function routeRequest(req, res) {
 
   if (requestUrl.pathname === '/media' || requestUrl.pathname === '/media.html') {
     if (!serveStaticFile(res, path.join(WEB_ROOT, 'media.html'))) {
+      sendText(res, 404, 'Not found');
+    }
+    return;
+  }
+
+  if (requestUrl.pathname === '/scene' || requestUrl.pathname === '/scene.html') {
+    if (!serveStaticFile(res, path.join(WEB_ROOT, 'scene.html'))) {
       sendText(res, 404, 'Not found');
     }
     return;
@@ -1685,6 +1766,8 @@ setInterval(() => {
 }, 2000);
 
 server.listen(PORT, HOST, () => {
+  ensureRuntimeDir();
+  buildMediaIndex();
   discoverRobot();
   console.log(`Robomaster UI listening on http://${HOST}:${PORT}`);
   const appConfig = loadAppConfig();

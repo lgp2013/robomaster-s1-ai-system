@@ -83,9 +83,10 @@
       <header class="media-header">
         <div>
           <h1>媒体管理</h1>
-          <p class="lede">浏览和管理人物锁定后保存的照片</p>
+          <p class="lede">浏览和管理保存在 <code>runtime/media/locked_targets/</code> 的人物锁定照片</p>
         </div>
         <div>
+          <button id="rescanButton" class="button secondary" type="button">刷新媒体索引</button>
           <a href="/" class="back-link">← 返回控制台</a>
         </div>
       </header>
@@ -133,6 +134,7 @@
                 <p>置信度: ${photo.confidence ? (photo.confidence * 100).toFixed(1) + '%' : '-'}</p>
               </div>
               <div class="media-card-actions">
+                <a href="${photo.url}" target="_blank" rel="noreferrer" class="button secondary">查看原图</a>
                 <a href="${photo.url}" download="${photo.filename}" class="button primary">下载</a>
                 <button class="button secondary" onclick="deletePhoto('${photo.id}')">删除</button>
               </div>
@@ -169,6 +171,20 @@
           alert('删除失败: ' + error.message);
         }
       }
+
+      async function rescanMedia() {
+        const response = await fetch('/api/media/rescan', { method: 'POST' });
+        if (!response.ok) {
+          throw new Error('刷新媒体索引失败');
+        }
+        await loadMedia();
+      }
+
+      document.getElementById('rescanButton').addEventListener('click', () => {
+        rescanMedia().catch((error) => {
+          alert(error.message);
+        });
+      });
 
       loadMedia();
     </script>
