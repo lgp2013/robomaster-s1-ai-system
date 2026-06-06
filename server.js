@@ -701,7 +701,7 @@ function readRosTopicOnce(candidates, timeout = 3000) {
   return { topic: '', raw: '' };
 }
 
-function readRosTopicOnceAsync(candidates, timeout = 3000) {
+function readRosTopicOnceAsync(candidates, timeout = 5000) {
   return new Promise((resolve) => {
     let index = 0;
     
@@ -724,20 +724,16 @@ function readRosTopicOnceAsync(candidates, timeout = 3000) {
       
       const topic = candidates[index++];
       // ROS2 Foxy 不支持 --once，使用 timeout 命令限制执行时间
-      const child = execFile('timeout', ['2', ros2Cmd, 'topic', 'echo', topic], {
+      // 增加超时到 3 秒，给订阅建立连接的时间
+      const child = execFile('timeout', ['3', ros2Cmd, 'topic', 'echo', topic], {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout: timeout + 1000,
+        timeout: timeout + 2000,
         env: { ...process.env, PYTHONUNBUFFERED: '1' },
       }, (error, stdout, stderr) => {
-        if (error && error.killed) {
-          // timeout 正常终止，使用已收集的输出
-          const lines = stdout.split('\n').filter(line => line.trim());
-          if (lines.length > 0) {
-            resolve({ topic, raw: lines.join('\n') });
-            return;
-          }
-        }
+        // timeout 命令返回 code 124 表示超时，这是正常的
+        const isTimeout = error && error.code === 124;
+        
         if (stdout && stdout.trim()) {
           const lines = stdout.split('\n').filter(line => line.trim());
           if (lines.length > 0) {
@@ -745,6 +741,12 @@ function readRosTopicOnceAsync(candidates, timeout = 3000) {
             return;
           }
         }
+        
+        // 如果不是超时错误，记录一下
+        if (error && !isTimeout) {
+          console.log(`[robot-info] Failed to read ${topic}:`, error.message);
+        }
+        
         tryNext();
       });
       
