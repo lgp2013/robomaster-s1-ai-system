@@ -723,20 +723,40 @@ function readRosTopicOnceAsync(candidates, timeout = 3000) {
       }
       
       const topic = candidates[index++];
-      execFile(ros2Cmd, ['topic', 'echo', topic, '--once'], {
+      // ROS2 Foxy 不支持 --once，使用 timeout 命令限制执行时间
+      const child = execFile('timeout', ['2', ros2Cmd, 'topic', 'echo', topic], {
         cwd: ROOT,
         encoding: 'utf8',
-        timeout,
+        timeout: timeout + 1000,
         env: { ...process.env, PYTHONUNBUFFERED: '1' },
       }, (error, stdout, stderr) => {
-        if (error) {
-          console.log(`[robot-info] Failed to read ${topic}:`, error.message);
+        if (error && error.killed) {
+          // timeout 正常终止，使用已收集的输出
+          const lines = stdout.split('\n').filter(line => line.trim());
+          if (lines.length > 0) {
+            resolve({ topic, raw: lines.join('\n') });
+            return;
+          }
         }
-        if (!error && stdout && stdout.trim()) {
-          resolve({ topic, raw: stdout.trim() });
-        } else {
-          tryNext();
+        if (stdout && stdout.trim()) {
+          const lines = stdout.split('\n').filter(line => line.trim());
+          if (lines.length > 0) {
+            resolve({ topic, raw: lines.join('\n') });
+            return;
+          }
         }
+        tryNext();
+      });
+      
+      // 备用：如果 timeout 命令不可用，使用 kill 手动终止
+      const killTimer = setTimeout(() => {
+        if (child && !child.killed) {
+          child.kill('SIGTERM');
+        }
+      }, timeout);
+      
+      child.on('exit', () => {
+        clearTimeout(killTimer);
       });
     }
     
