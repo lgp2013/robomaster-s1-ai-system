@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const { Readable } = require('node:stream');
 const { createPerceptionRuntime } = require('./perception_runtime');
 
@@ -701,6 +701,34 @@ function readRosTopicOnce(candidates, timeout = 3000) {
   return { topic: '', raw: '' };
 }
 
+function readRosTopicOnceAsync(candidates, timeout = 3000) {
+  return new Promise((resolve) => {
+    let index = 0;
+    
+    function tryNext() {
+      if (index >= candidates.length) {
+        resolve({ topic: '', raw: '' });
+        return;
+      }
+      
+      const topic = candidates[index++];
+      execFile('ros2', ['topic', 'echo', topic, '--once'], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout,
+      }, (error, stdout) => {
+        if (!error && stdout && stdout.trim()) {
+          resolve({ topic, raw: stdout.trim() });
+        } else {
+          tryNext();
+        }
+      });
+    }
+    
+    tryNext();
+  });
+}
+
 function formatPercent(rawValue) {
   const numeric = Number(rawValue);
   if (!Number.isFinite(numeric)) {
@@ -718,7 +746,7 @@ function formatSeconds(rawValue) {
   return `${numeric.toFixed(0)}s`;
 }
 
-function updateRobotInfoFromRos() {
+async function updateRobotInfoFromRos() {
   const env = detectEnvironment();
   const unavailable = '未发现';
 
@@ -738,7 +766,7 @@ function updateRobotInfoFromRos() {
     return;
   }
 
-  const batteryResult = readRosTopicOnce(['/battery', '/battery_state']);
+  const batteryResult = await readRosTopicOnceAsync(['/battery', '/battery_state']);
   if (batteryResult.raw) {
     const percentageMatch = batteryResult.raw.match(/percentage:\s*([\d.]+)/);
     const voltageMatch = batteryResult.raw.match(/voltage:\s*([\d.]+)/);
@@ -749,7 +777,7 @@ function updateRobotInfoFromRos() {
     }
   }
 
-  const odomResult = readRosTopicOnce(['/odom']);
+  const odomResult = await readRosTopicOnceAsync(['/odom']);
   if (odomResult.raw) {
     const linearMatch = odomResult.raw.match(/linear:\s*\n\s*x:\s*([\d.eE+-]+)/);
     const angularMatch = odomResult.raw.match(/angular:\s*\n\s*z:\s*([\d.eE+-]+)/);
@@ -758,7 +786,7 @@ function updateRobotInfoFromRos() {
     }
   }
 
-  const gimbalResult = readRosTopicOnce(['/gimbal/angle', '/state', '/joint_states']);
+  const gimbalResult = await readRosTopicOnceAsync(['/gimbal/angle', '/state', '/joint_states']);
   if (gimbalResult.raw) {
     const yawMatch = gimbalResult.raw.match(/(?:yaw|x):\s*([\d.eE+-]+)/);
     const pitchMatch = gimbalResult.raw.match(/(?:pitch|y):\s*([\d.eE+-]+)/);
@@ -770,12 +798,12 @@ function updateRobotInfoFromRos() {
     }
   }
 
-  const imuResult = readRosTopicOnce(['/imu', '/imu/data']);
+  const imuResult = await readRosTopicOnceAsync(['/imu', '/imu/data']);
   if (imuResult.raw) {
     robotInfoState.imuStatus = '正常';
   }
 
-  const statusResult = readRosTopicOnce(['/robot_status', '/status']);
+  const statusResult = await readRosTopicOnceAsync(['/robot_status', '/status']);
   if (statusResult.raw) {
     const statusJson = parseJsonObject(statusResult.raw);
     if (statusJson) {
@@ -1545,7 +1573,7 @@ async function routeRequest(req, res) {
   }
 
   if (requestUrl.pathname === '/api/robot/info') {
-    updateRobotInfoFromRos();
+    await updateRobotInfoFromRos();
     sendJson(res, 200, getRobotInfoSnapshot());
     return;
   }
